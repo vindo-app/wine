@@ -5,11 +5,14 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+
 #include <windows.h>
 
-#include <wine/unicode.h>
-#include <wine/debug.h>
+#include "wine/debug.h"
+#include "wine/unicode.h"
+
+WINE_DEFAULT_DEBUG_CHANNEL(vindo_prefix_init);
 
 int wmain() {
-	return 0;
+    return 0;
 }
