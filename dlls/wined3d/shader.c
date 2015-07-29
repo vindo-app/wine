@@ -1867,7 +1867,7 @@ static void shader_trace_init(const struct wined3d_shader_frontend *fe, void *fe
     }
 }
 
-static void shader_cleanup(struct wined3d_shader *shader)
+void shader_cleanup(struct wined3d_shader *shader)
 {
     HeapFree(GetProcessHeap(), 0, shader->output_signature.elements);
     HeapFree(GetProcessHeap(), 0, shader->input_signature.elements);
@@ -2125,9 +2125,10 @@ ULONG CDECL wined3d_shader_decref(struct wined3d_shader *shader)
 
     if (!refcount)
     {
-        shader_cleanup(shader);
+        const struct wined3d_device *device = shader->device;
+
         shader->parent_ops->wined3d_object_destroyed(shader->parent);
-        HeapFree(GetProcessHeap(), 0, shader);
+        wined3d_cs_emit_shader_cleanup(device->cs, shader);
     }
 
     return refcount;
@@ -2404,7 +2405,7 @@ void find_ps_compile_args(const struct wined3d_state *state, const struct wined3
     memset(args, 0, sizeof(*args)); /* FIXME: Make sure all bits are set. */
     if (!gl_info->supported[ARB_FRAMEBUFFER_SRGB] && state->render_states[WINED3D_RS_SRGBWRITEENABLE])
     {
-        unsigned int rt_fmt_flags = state->fb->render_targets[0]->format_flags;
+        unsigned int rt_fmt_flags = state->fb.render_targets[0]->format_flags;
         if (rt_fmt_flags & WINED3DFMT_FLAG_SRGB_WRITE)
         {
             static unsigned int warned = 0;
