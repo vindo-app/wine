@@ -100,7 +100,7 @@ const WCHAR *get_dll_dir() {
         data_dir = wine_get_data_dir();
     else {
         if (getenv("WINE_DATA_DIR") != NULL)
-            data_dir = "~/test_data_dir";
+            data_dir = getenv("WINE_DATA_DIR");
         else {
             FIXME("can't find data dir, exiting");
             ExitProcess(1);
