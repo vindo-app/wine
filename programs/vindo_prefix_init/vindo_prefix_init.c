@@ -14,46 +14,58 @@
 #include "wine/library.h"
 #include "wine/unicode.h"
 
+void install_dlls();
 const WCHAR *get_dll_dir();
 void print_error();
 
+LPWSTR concat(LPCWSTR part1, LPCWSTR part2);
+
+LPVOID alloc(SIZE_T size);
+void dealloc(LPVOID memory);
+
 WINE_DEFAULT_DEBUG_CHANNEL(v_p_i);
 
-
 int wmain() {
-    static const WCHAR dot_dll[] = {'.','d','l','l',0};
-    static const WCHAR slash_star[] = {'/','*',0};
-    static const WCHAR dest_template[] = {'C','\\','w','i','n','d','o','w','s','\\','s','y','s','t','e','m','3','2','\\','%','s',0};
-    static const WCHAR src_template[] = {'%','s','\\','%','s',0};
+    install_dlls();
 
-    const WCHAR *dll_dir = get_dll_dir();
+    return 0;
+}
+
+void install_dlls() {
+    static const WCHAR star_dot_dll[] = {'*','.','d','l','l',0};
+    static const WCHAR system32[] = {'C',':','\\','w','i','n','d','o','w','s','\\','s','y','s','t','e','m','3','2','\\',0};
+
+    LPCWSTR dll_dir = get_dll_dir();
     WIN32_FIND_DATAW find_data;
     HANDLE find_handle;
 
-    WCHAR search_pattern[MAX_PATH];
-    strcpyW(search_pattern, dll_dir);
-    strcatW(search_pattern, slash_star);
-    
+    // search for dlls in share/wine/dlls
+
+    LPWSTR search_pattern = concat(dll_dir, star_dot_dll);
+
     if ((find_handle = FindFirstFileW(search_pattern, &find_data)) == INVALID_HANDLE_VALUE) {
         print_error();
         goto stop;
     }
 
     do {
-        const WCHAR *dll = find_data.cFileName;
-        if (strlenW(dll) > 4 && !strcmpW(dll + strlenW(dll) - 4, dot_dll)) { // extension of .dll
-            WCHAR dest[MAX_PATH];
-            WCHAR src[MAX_PATH];
+        LPWSTR dll = find_data.cFileName;
+        LPWSTR src = concat(dll_dir, dll);
+        LPWSTR dest = concat(system32, dll);
 
-            sprintfW(dest, dest_template, dll);
-            sprintfW(src, src_template, dll_dir, dll);
+        // actually copy the dll to c:\windows\system32
 
-            if (!CopyFileW(src, dest, FALSE)) {
-                print_error();
-                ERR("src: %s", wine_dbgstr_w(src));
-                goto stop;
-            }
+        if (!CopyFileW(src, dest, FALSE)) {
+            print_error();
+            ERR("src: %s", wine_dbgstr_w(src));
+            goto stop;
         }
+
+        // set up a dll override
+
+
+        dealloc(src);
+        dealloc(dest);
     } while (FindNextFileW(find_handle, &find_data) != 0);
 
     if (GetLastError() != ERROR_NO_MORE_FILES) {
@@ -61,11 +73,12 @@ int wmain() {
         goto stop;
     }
 
+    dealloc(search_pattern);
+
     FindClose(find_handle);
 
 stop:
-    HeapFree(GetProcessHeap(), 0, (LPVOID) dll_dir);
-    return 0;
+    dealloc((LPVOID) dll_dir);
 }
 
 const WCHAR *get_dll_dir() {
@@ -79,9 +92,9 @@ const WCHAR *get_dll_dir() {
         data_dir = "~/test_data_dir";
     }
 
-    dll_dir = HeapAlloc(GetProcessHeap(), 0, strlen(data_dir) + strlen("/dlls") + 1);
+    dll_dir = alloc(strlen(data_dir) + strlen("/dlls") + 1);
     strcpy(dll_dir, data_dir);
-    strcat(dll_dir, "/dlls");
+    strcat(dll_dir, "/dlls/");
 
     const WCHAR *dos_dll_dir = wine_get_dos_file_name(dll_dir);
     HeapFree(GetProcessHeap(), 0, dll_dir);
@@ -102,4 +115,30 @@ void print_error() {
         0, NULL );
 
     ERR("%s", msg);
+}
+
+LPWSTR concat(LPCWSTR part1, LPCWSTR part2) {
+    LPWSTR result = alloc((strlenW(part1) + strlenW(part2) + 1) * 2);
+    // Multiply the length by two, because the characters are wide.
+    // It took me a half an hour to figure that out. Lesson learned.
+
+    strcpyW(result, part1);
+    strcatW(result, part2);
+
+    return result;
+}
+
+LPVOID alloc(SIZE_T size) {
+    LPVOID memory;
+
+    if (!(memory = HeapAlloc(GetProcessHeap(), 0, size))) {
+        ERR("not enough memory");
+        ExitProcess(1);
+    }
+
+    return memory;
+}
+
+void dealloc(LPVOID memory) {
+    HeapFree(GetProcessHeap(), 0, memory);
 }
