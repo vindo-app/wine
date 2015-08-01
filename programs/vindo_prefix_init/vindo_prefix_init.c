@@ -35,6 +35,8 @@ void install_dlls() {
     static const WCHAR star_dot_dll[] = {'*','.','d','l','l',0};
     static const WCHAR system32[] = {'C',':','\\','w','i','n','d','o','w','s','\\','s','y','s','t','e','m','3','2','\\',0};
 
+    static const WCHAR dll_overrides_path[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','D','l','l','O','v','e','r','r','i','d','e','s',0};
+
     LPCWSTR dll_dir = get_dll_dir();
     WIN32_FIND_DATAW find_data;
     HANDLE find_handle;
@@ -60,9 +62,19 @@ void install_dlls() {
             ERR("src: %s", wine_dbgstr_w(src));
             goto stop;
         }
-
+        
         // set up a dll override
+        HKEY dll_overrides;
 
+        if (!RegOpenKeyExW(HKEY_CURRENT_USER, dll_overrides_path, 0, KEY_SET_VALUE, &dll_overrides)) {
+            print_error();
+            goto stop;
+        }
+
+        if (!RegCloseKey(dll_overrides)) {
+            print_error();
+            goto stop;
+        }
 
         dealloc(src);
         dealloc(dest);
@@ -74,7 +86,6 @@ void install_dlls() {
     }
 
     dealloc(search_pattern);
-
     FindClose(find_handle);
 
 stop:
@@ -88,8 +99,12 @@ const WCHAR *get_dll_dir() {
     if (wine_get_data_dir() != NULL)
         data_dir = wine_get_data_dir();
     else {
-        FIXME("wine_get_data_dir returning NULL, using ~/test_data_dir\n");
-        data_dir = "~/test_data_dir";
+        if (getenv("WINE_DATA_DIR") != NULL)
+            data_dir = "~/test_data_dir";
+        else {
+            FIXME("can't find data dir, exiting");
+            ExitProcess(1);
+        }
     }
 
     dll_dir = alloc(strlen(data_dir) + strlen("/dlls") + 1);
