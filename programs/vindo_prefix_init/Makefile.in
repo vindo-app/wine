@@ -1,5 +1,5 @@
 MODULE    = vindo_prefix_init.exe
 APPMODE   = -mconsole -municode
-
+IMPORTS   = advapi32
 C_SRCS = \
 	vindo_prefix_init.c
