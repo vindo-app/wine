@@ -36,6 +36,7 @@ void install_dlls() {
     static const WCHAR system32[] = {'C',':','\\','w','i','n','d','o','w','s','\\','s','y','s','t','e','m','3','2','\\',0};
 
     static const WCHAR dll_overrides_path[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','D','l','l','O','v','e','r','r','i','d','e','s',0};
+    static const WCHAR native_builtin[] = {'n','a','t','i','v','e',',','b','u','i','l','t','i','n',0};
 
     LPCWSTR dll_dir = get_dll_dir();
     WIN32_FIND_DATAW find_data;
@@ -66,12 +67,19 @@ void install_dlls() {
         // set up a dll override
         HKEY dll_overrides;
 
-        if (!RegOpenKeyExW(HKEY_CURRENT_USER, dll_overrides_path, 0, KEY_SET_VALUE, &dll_overrides)) {
+        // Unlike other functions, these registry functions return nonzero for success.
+        // It took me about 3 days to figure this out. Lesson learned.
+        if (RegCreateKeyExW(HKEY_CURRENT_USER, dll_overrides_path, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &dll_overrides, NULL)) {
             print_error();
             goto stop;
         }
 
-        if (!RegCloseKey(dll_overrides)) {
+        if (RegSetValueExW(dll_overrides, dll, 0, REG_SZ, native_builtin, sizeof(native_builtin))) {
+            print_error();
+            goto stop;
+        }
+
+        if (RegCloseKey(dll_overrides)) {
             print_error();
             goto stop;
         }
