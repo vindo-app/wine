@@ -106,6 +106,9 @@ rm -rf lcms*
 configure --without-x --without-gettext
 make_install
 
+# copy the share folder
+run cp -r share $prefix
+
 # cleanup
 echo copying usr to current directory...
 run rm -rf usr
