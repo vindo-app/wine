@@ -13,8 +13,6 @@ function bold() {
 	tput rmso
 }	
 function run() {
-	declare -i status
-
 	bold "$ $@"
 	if ! $@; then
 		bold "COMMAND FAILED"
@@ -36,8 +34,13 @@ function make_install() {
 
 # setup
 if [ -e $prefix ]; then
-	echo backing up existing usr...
-	run mv $prefix ${prefix}.bak
+    if [ -d ${prefix}.bak ]; then
+        echo deleting old usr...
+        run rm -rf ${prefix}
+    else
+	    echo backing up existing usr...
+	    run mv $prefix ${prefix}.bak
+    fi
 fi
 
 #pkg-config
@@ -102,17 +105,35 @@ run cd ..
 rm -rf lcms*
 
 # and finally, wine!
-
 configure --without-x --without-gettext
 make_install
 
 # copy the share folder
-run cp -r share $prefix
+run cp -r share/* $prefix/share/wine
 
-# cleanup
-echo copying usr to current directory...
-run rm -rf usr
-run mv $prefix usr
+# delete stuff
+run rm -rf $prefix/include
+run rm -rf $prefix/lib/*.{a,la}
+run rm -rf $prefix/lib/pkgconfig
+for thing in $prefix/share/*; do
+    if [[ $thing != */wine ]]; then
+        run rm -rf $thing
+    fi
+done
+for thing in $prefix/bin/*; do
+    if [[ $thing != */wine && $thing != */wineserver ]]; then
+        run rm $thing
+    fi
+done
+
+# finish!
+echo zipping usr to current directory...
+run rm -rf wine.zip
+where=`pwd`
+run cd $prefix/..
+run zip -r $where/wine.zip usr
+run cd $where
+run rm -rf $prefix
 if [ -d ${prefix}.bak ]; then
 	echo restoring usr backup...
 	run mv ${prefix}.bak $prefix
