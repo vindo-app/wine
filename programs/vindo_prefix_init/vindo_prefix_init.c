@@ -14,7 +14,7 @@
 #include "wine/library.h"
 #include "wine/unicode.h"
 
-void install_dll(LPCWSTR dll);
+void install_dll(LPCWSTR dll, LPCWSTR dll_dir);
 const WCHAR *get_dll_dir();
 
 #define TRY(something) if (!(something)) fail()
@@ -31,12 +31,14 @@ int wmain() {
     static const WCHAR star_dot_dll[] = {'*','.','d','l','l',0};
     LPCWSTR dll_dir = get_dll_dir();
     LPWSTR search_pattern = concat(dll_dir, star_dot_dll);
+    WIN32_FIND_DATAW find_data;
+    HANDLE find_handle;
 
     if ((find_handle = FindFirstFileW(search_pattern, &find_data)) == INVALID_HANDLE_VALUE) fail();
 
     do {
-        find_data.cFileName[strrchrW('.')] = '\0';
-        install_dll(find_data.cFileName);
+        *strrchrW(find_data.cFileName, '.') = '\0';
+        install_dll(find_data.cFileName, dll_dir);
     } while (FindNextFileW(find_handle, &find_data) != 0);
     
     if (GetLastError() != ERROR_NO_MORE_FILES) fail();
@@ -44,10 +46,9 @@ int wmain() {
     return 0;
 }
 
-void install_dll(LPCWSTR dll) {
+void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
     static const WCHAR dot_dll[] = {'.','d','l','l',0};
     static const WCHAR system32[] = {'C',':','\\','w','i','n','d','o','w','s','\\','s','y','s','t','e','m','3','2','\\',0};
-    LPCWSTR dll_dir = get_dll_dir();
 
     LPCWSTR dll_file = concat(dll, dot_dll);
 
@@ -63,25 +64,25 @@ void install_dll(LPCWSTR dll) {
     HKEY overrides_key;
 
     TRY(!RegCreateKeyExW(HKEY_CURRENT_USER, dll_overrides, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &overrides_key, NULL));
-    TRY(!RegSetValueExW(overrides_key, dll, 0, REG_SZ, native, sizeof(native)));
+    TRY(!RegSetValueExW(overrides_key, dll, 0, REG_SZ, (BYTE *) native, sizeof(native)));
     TRY(!RegCloseKey(overrides_key));
 
     // dllregisterserver
-    static const WCHAR dll_register_server[] = {'D','l','l','R','e','g','i','s','t','e','r','S','e','r','v','e','r',0};
     HMODULE module;
-    void *(*DllRegisterServer)(void);
+    HRESULT (WINAPI *DllRegisterServer)(void);
     HRESULT result;
 
     TRY(module = LoadLibraryExW(dst_file, 0, LOAD_WITH_ALTERED_SEARCH_PATH));
-    TRY(DllRegisterServer = GetProcAddress(module, dll_register_server));
+    if (!(DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer"))) goto dont_register; // this is fine
     result = DllRegisterServer();
     if (FAILED(result)) fail();
     FreeLibrary(module);
 
-    dealloc(dll_dir);
-    dealloc(dll_file);
-    dealloc(dst_file);
-    dealloc(src_file);
+dont_register:
+    dealloc((LPVOID) dll_dir);
+    dealloc((LPVOID) dll_file);
+    dealloc((LPVOID) dst_file);
+    dealloc((LPVOID) src_file);
 }
 
 
