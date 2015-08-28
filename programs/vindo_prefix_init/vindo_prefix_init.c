@@ -14,91 +14,76 @@
 #include "wine/library.h"
 #include "wine/unicode.h"
 
-void install_dlls();
+void install_dll(LPCWSTR dll);
 const WCHAR *get_dll_dir();
-void print_error();
+
+#define TRY(something) if (!(something)) fail()
+void fail();
 
 LPWSTR concat(LPCWSTR part1, LPCWSTR part2);
 
 LPVOID alloc(SIZE_T size);
-void dealloc(LPVOID memory);
+void dealloc(const LPVOID memory);
 
 WINE_DEFAULT_DEBUG_CHANNEL(v_p_i);
 
 int wmain() {
-    install_dlls();
+    static const WCHAR star_dot_dll[] = {'*','.','d','l','l',0};
+    LPCWSTR dll_dir = get_dll_dir();
+    LPWSTR search_pattern = concat(dll_dir, star_dot_dll);
+
+    if ((find_handle = FindFirstFileW(search_pattern, &find_data)) == INVALID_HANDLE_VALUE) fail();
+
+    do {
+        find_data.cFileName[strrchrW('.')] = '\0';
+        install_dll(find_data.cFileName);
+    } while (FindNextFileW(find_handle, &find_data) != 0);
+    
+    if (GetLastError() != ERROR_NO_MORE_FILES) fail();
 
     return 0;
 }
 
-void install_dlls() {
-    static const WCHAR star_dot_dll[] = {'*','.','d','l','l',0};
+void install_dll(LPCWSTR dll) {
+    static const WCHAR dot_dll[] = {'.','d','l','l',0};
     static const WCHAR system32[] = {'C',':','\\','w','i','n','d','o','w','s','\\','s','y','s','t','e','m','3','2','\\',0};
-
-    static const WCHAR dll_overrides_path[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','D','l','l','O','v','e','r','r','i','d','e','s',0};
-    static const WCHAR native_builtin[] = {'n','a','t','i','v','e',',','b','u','i','l','t','i','n',0};
-
     LPCWSTR dll_dir = get_dll_dir();
-    WIN32_FIND_DATAW find_data;
-    HANDLE find_handle;
 
-    // search for dlls in share/wine/dlls
+    LPCWSTR dll_file = concat(dll, dot_dll);
 
-    LPWSTR search_pattern = concat(dll_dir, star_dot_dll);
+    LPCWSTR src_file = concat(dll_dir, dll_file);
+    LPCWSTR dst_file = concat(system32, dll_file);
 
-    if ((find_handle = FindFirstFileW(search_pattern, &find_data)) == INVALID_HANDLE_VALUE) {
-        print_error();
-        goto stop;
-    }
+    // copy the file
+    TRY(CopyFileW(src_file, dst_file, FALSE));
 
-    do {
-        LPWSTR dll = find_data.cFileName;
-        LPWSTR src = concat(dll_dir, dll);
-        LPWSTR dest = concat(system32, dll);
+    // make dll override
+    static const WCHAR dll_overrides[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','D','l','l','O','v','e','r','r','i','d','e','s',0};
+    static const WCHAR native[] = {'n','a','t','i','v','e',0};
+    HKEY overrides_key;
 
-        // actually copy the dll to c:\windows\system32
+    TRY(!RegCreateKeyExW(HKEY_CURRENT_USER, dll_overrides, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &overrides_key, NULL));
+    TRY(!RegSetValueExW(overrides_key, dll, 0, REG_SZ, native, sizeof(native)));
+    TRY(!RegCloseKey(overrides_key));
 
-        if (!CopyFileW(src, dest, FALSE)) {
-            print_error();
-            ERR("src: %s", wine_dbgstr_w(src));
-            goto stop;
-        }
-        
-        // set up a dll override
-        HKEY dll_overrides;
+    // dllregisterserver
+    static const WCHAR dll_register_server[] = {'D','l','l','R','e','g','i','s','t','e','r','S','e','r','v','e','r',0};
+    HMODULE module;
+    void *(*DllRegisterServer)(void);
+    HRESULT result;
 
-        // Unlike other functions, these registry functions return nonzero for success.
-        // It took me about 3 days to figure this out. Lesson learned.
-        if (RegCreateKeyExW(HKEY_CURRENT_USER, dll_overrides_path, 0, NULL, REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, NULL, &dll_overrides, NULL)) {
-            print_error();
-            goto stop;
-        }
+    TRY(module = LoadLibraryExW(dst_file, 0, LOAD_WITH_ALTERED_SEARCH_PATH));
+    TRY(DllRegisterServer = GetProcAddress(module, dll_register_server));
+    result = DllRegisterServer();
+    if (FAILED(result)) fail();
+    FreeLibrary(module);
 
-        if (RegSetValueExW(dll_overrides, dll, 0, REG_SZ, native_builtin, sizeof(native_builtin))) {
-            print_error();
-            goto stop;
-        }
-
-        if (RegCloseKey(dll_overrides)) {
-            print_error();
-            goto stop;
-        }
-
-        dealloc(src);
-        dealloc(dest);
-    } while (FindNextFileW(find_handle, &find_data) != 0);
-
-    if (GetLastError() != ERROR_NO_MORE_FILES) {
-        print_error();
-        goto stop;
-    }
-
-    dealloc(search_pattern);
-    FindClose(find_handle);
-
-stop:
-    dealloc((LPVOID) dll_dir);
+    dealloc(dll_dir);
+    dealloc(dll_file);
+    dealloc(dst_file);
+    dealloc(src_file);
 }
+
 
 const WCHAR *get_dll_dir() {
     const char *data_dir;
@@ -124,7 +109,7 @@ const WCHAR *get_dll_dir() {
     return dos_dll_dir;
 }
 
-void print_error() {
+void fail() {
     char *msg;
 
     FormatMessageA(
@@ -138,6 +123,8 @@ void print_error() {
         0, NULL );
 
     ERR("%s", msg);
+
+    ExitProcess(1);
 }
 
 LPWSTR concat(LPCWSTR part1, LPCWSTR part2) {
@@ -162,6 +149,6 @@ LPVOID alloc(SIZE_T size) {
     return memory;
 }
 
-void dealloc(LPVOID memory) {
-    HeapFree(GetProcessHeap(), 0, memory);
+void dealloc(const LPVOID memory) {
+    HeapFree(GetProcessHeap(), 0, (LPVOID) memory);
 }
