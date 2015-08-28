@@ -73,12 +73,12 @@ void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
     HRESULT result;
 
     TRY(module = LoadLibraryExW(dst_file, 0, LOAD_WITH_ALTERED_SEARCH_PATH));
-    if (!(DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer"))) goto dont_register; // this is fine
-    result = DllRegisterServer();
-    if (FAILED(result)) fail();
+    if (DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer")) {
+        result = DllRegisterServer();
+        if (FAILED(result)) fail();
+    }
     FreeLibrary(module);
 
-dont_register:
     dealloc((LPVOID) dll_dir);
     dealloc((LPVOID) dll_file);
     dealloc((LPVOID) dst_file);
