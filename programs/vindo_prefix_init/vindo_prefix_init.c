@@ -43,6 +43,7 @@ int wmain() {
     
     if (GetLastError() != ERROR_NO_MORE_FILES) fail();
 
+    dealloc(dll_dir);
     return 0;
 }
 
@@ -75,11 +76,12 @@ void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
     TRY(module = LoadLibraryExW(dst_file, 0, LOAD_WITH_ALTERED_SEARCH_PATH));
     if (DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer")) {
         result = DllRegisterServer();
-        if (FAILED(result)) fail();
+        if (FAILED(result) && result != E_NOTIMPL) {
+            ERR("in dll %s: %x\n", debugstr_w(dll), result);
+        }
     }
     FreeLibrary(module);
 
-    dealloc((LPVOID) dll_dir);
     dealloc((LPVOID) dll_file);
     dealloc((LPVOID) dst_file);
     dealloc((LPVOID) src_file);
