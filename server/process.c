@@ -62,6 +62,7 @@ static int shutdown_stage;  /* current stage in the shutdown process */
 static void process_dump( struct object *obj, int verbose );
 static int process_signaled( struct object *obj, struct wait_queue_entry *entry );
 static unsigned int process_map_access( struct object *obj, unsigned int access );
+static struct security_descriptor *process_get_sd( struct object *obj );
 static void process_poll_event( struct fd *fd, int event );
 static void process_destroy( struct object *obj );
 static void terminate_process( struct process *process, struct thread *skip, int exit_code );
@@ -78,7 +79,7 @@ static const struct object_ops process_ops =
     no_signal,                   /* signal */
     no_get_fd,                   /* get_fd */
     process_map_access,          /* map_access */
-    default_get_sd,              /* get_sd */
+    process_get_sd,              /* get_sd */
     default_set_sd,              /* set_sd */
     no_lookup_name,              /* lookup_name */
     no_open_file,                /* open_file */
@@ -459,6 +460,7 @@ void shutdown_master_socket(void)
 /* final cleanup once we are sure a process is really dead */
 static void process_died( struct process *process )
 {
+    process->is_terminated = 1;
     if (debug_level) fprintf( stderr, "%04x: *process killed*\n", process->id );
     if (!process->is_system)
     {
@@ -515,6 +517,7 @@ struct thread *create_process( int fd, struct thread *parent_thread, int inherit
     process->is_system       = 0;
     process->debug_children  = 0;
     process->is_terminating  = 0;
+    process->is_terminated   = 0;
     process->job             = NULL;
     process->console         = NULL;
     process->startup_state   = STARTUP_IN_PROGRESS;
@@ -656,6 +659,53 @@ static unsigned int process_map_access( struct object *obj, unsigned int access 
     if (access & PROCESS_SET_INFORMATION) access |= PROCESS_SET_LIMITED_INFORMATION;
 
     return access & ~(GENERIC_READ | GENERIC_WRITE | GENERIC_EXECUTE | GENERIC_ALL);
+}
+
+static struct security_descriptor *process_get_sd( struct object *obj )
+{
+    static struct security_descriptor *key_default_sd;
+
+    if (obj->sd) return obj->sd;
+
+    if (!key_default_sd)
+    {
+        size_t users_sid_len = security_sid_len( security_domain_users_sid );
+        size_t admins_sid_len = security_sid_len( security_builtin_admins_sid );
+        size_t dacl_len = sizeof(ACL) + 2 * offsetof( ACCESS_ALLOWED_ACE, SidStart )
+                          + users_sid_len + admins_sid_len;
+        ACCESS_ALLOWED_ACE *aaa;
+        ACL *dacl;
+
+        key_default_sd = mem_alloc( sizeof(*key_default_sd) + admins_sid_len + users_sid_len
+                                    + dacl_len );
+        key_default_sd->control   = SE_DACL_PRESENT;
+        key_default_sd->owner_len = admins_sid_len;
+        key_default_sd->group_len = users_sid_len;
+        key_default_sd->sacl_len  = 0;
+        key_default_sd->dacl_len  = dacl_len;
+        memcpy( key_default_sd + 1, security_builtin_admins_sid, admins_sid_len );
+        memcpy( (char *)(key_default_sd + 1) + admins_sid_len, security_domain_users_sid, users_sid_len );
+
+        dacl = (ACL *)((char *)(key_default_sd + 1) + admins_sid_len + users_sid_len);
+        dacl->AclRevision = ACL_REVISION;
+        dacl->Sbz1 = 0;
+        dacl->AclSize = dacl_len;
+        dacl->AceCount = 2;
+        dacl->Sbz2 = 0;
+        aaa = (ACCESS_ALLOWED_ACE *)(dacl + 1);
+        aaa->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
+        aaa->Header.AceFlags = INHERIT_ONLY_ACE | CONTAINER_INHERIT_ACE;
+        aaa->Header.AceSize = offsetof( ACCESS_ALLOWED_ACE, SidStart ) + users_sid_len;
+        aaa->Mask = GENERIC_READ;
+        memcpy( &aaa->SidStart, security_domain_users_sid, users_sid_len );
+        aaa = (ACCESS_ALLOWED_ACE *)((char *)aaa + aaa->Header.AceSize);
+        aaa->Header.AceType = ACCESS_ALLOWED_ACE_TYPE;
+        aaa->Header.AceFlags = 0;
+        aaa->Header.AceSize = offsetof( ACCESS_ALLOWED_ACE, SidStart ) + admins_sid_len;
+        aaa->Mask = PROCESS_ALL_ACCESS;
+        memcpy( &aaa->SidStart, security_builtin_admins_sid, admins_sid_len );
+    }
+    return key_default_sd;
 }
 
 static void process_poll_event( struct fd *fd, int event )
@@ -1083,6 +1133,7 @@ DECL_HANDLER(new_process)
     struct process *process;
     struct process *parent = current->process;
     int socket_fd = thread_get_inflight_fd( current, req->socket_fd );
+    const struct security_descriptor *process_sd = NULL, *thread_sd = NULL;
 
     if (socket_fd == -1)
     {
@@ -1138,7 +1189,7 @@ DECL_HANDLER(new_process)
         goto done;
     }
 
-    info->data_size = get_req_data_size();
+    info->data_size = min( get_req_data_size(), req->info_size + req->env_size );
     info->info_size = min( req->info_size, info->data_size );
 
     if (req->info_size < sizeof(*info->data))
@@ -1179,10 +1230,36 @@ DECL_HANDLER(new_process)
 #undef FIXUP_LEN
     }
 
+    if (get_req_data_size() > req->info_size + req->env_size)
+    {
+        data_size_t sd_size, pos = req->info_size + req->env_size;
+
+        /* verify process sd */
+        if ((sd_size = min( get_req_data_size() - pos, req->process_sd_size )))
+        {
+            process_sd = (const struct security_descriptor *)((const char *)get_req_data() + pos);
+            if (!sd_is_valid( process_sd, sd_size ))
+            {
+                set_error( STATUS_INVALID_SECURITY_DESCR );
+                goto done;
+            }
+            pos += sd_size;
+        }
+
+        /* verify thread sd */
+        if ((sd_size = get_req_data_size() - pos))
+        {
+            thread_sd = (const struct security_descriptor *)((const char *)get_req_data() + pos);
+            if (!sd_is_valid( thread_sd, sd_size ))
+            {
+                set_error( STATUS_INVALID_SECURITY_DESCR );
+                goto done;
+            }
+        }
+    }
+
     if (!(thread = create_process( socket_fd, current, req->inherit_all ))) goto done;
     process = thread->process;
-    process->debug_children = (req->create_flags & DEBUG_PROCESS)
-        && !(req->create_flags & DEBUG_ONLY_THIS_PROCESS);
     process->startup_info = (struct startup_info *)grab_object( info );
 
     if (parent->job
@@ -1223,9 +1300,15 @@ DECL_HANDLER(new_process)
 
     /* attach to the debugger if requested */
     if (req->create_flags & (DEBUG_PROCESS | DEBUG_ONLY_THIS_PROCESS))
+    {
         set_process_debugger( process, current );
+        process->debug_children = !(req->create_flags & DEBUG_ONLY_THIS_PROCESS);
+    }
     else if (parent->debugger && parent->debug_children)
+    {
         set_process_debugger( process, parent->debugger );
+        process->debug_children = 1;
+    }
 
     if (!(req->create_flags & CREATE_NEW_PROCESS_GROUP))
         process->group_id = parent->group_id;
@@ -1236,6 +1319,25 @@ DECL_HANDLER(new_process)
     reply->tid = get_thread_id( thread );
     reply->phandle = alloc_handle( parent, process, req->process_access, req->process_attr );
     reply->thandle = alloc_handle( parent, thread, req->thread_access, req->thread_attr );
+
+    if (process_sd)
+    {
+        default_set_sd( &process->obj, process_sd,
+                        OWNER_SECURITY_INFORMATION |
+                        GROUP_SECURITY_INFORMATION |
+                        DACL_SECURITY_INFORMATION |
+                        SACL_SECURITY_INFORMATION );
+    }
+
+    if (thread_sd)
+    {
+        set_sd_defaults_from_token( &thread->obj, thread_sd,
+                                    OWNER_SECURITY_INFORMATION |
+                                    GROUP_SECURITY_INFORMATION |
+                                    DACL_SECURITY_INFORMATION |
+                                    SACL_SECURITY_INFORMATION,
+                                    process->token );
+    }
 
  done:
     release_object( info );
@@ -1316,7 +1418,10 @@ DECL_HANDLER(open_process)
     reply->handle = 0;
     if (process)
     {
-        reply->handle = alloc_handle( current->process, process, req->access, req->attributes );
+        if (!process->is_terminated)
+            reply->handle = alloc_handle( current->process, process, req->access, req->attributes );
+        else
+            set_error( STATUS_INVALID_PARAMETER );
         release_object( process );
     }
 }

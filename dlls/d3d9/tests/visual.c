@@ -1164,7 +1164,11 @@ static void color_fill_test(void)
          * result on Wine.
          * {D3DFMT_YUY2,     "D3DFMT_YUY2",     BLOCKS,                              0},
          * {D3DFMT_UYVY,     "D3DFMT_UYVY",     BLOCKS,                              0}, */
+#if defined(STAGING_CSMT)
+        {D3DFMT_DXT1,     "D3DFMT_DXT1",     BLOCKS,                              0},
+#else  /* STAGING_CSMT */
         {D3DFMT_DXT1,     "D3DFMT_DXT1",     BLOCKS | TODO_FILL_RETURN,           0},
+#endif /* STAGING_CSMT */
         /* Vendor-specific formats like ATI2N are a non-issue here since they're not
          * supported as offscreen plain surfaces and do not support D3DUSAGE_RENDERTARGET
          * when created as texture. */
@@ -11970,7 +11974,7 @@ static void yuv_layout_test(void)
     IDirect3D9 *d3d;
     D3DCOLOR color;
     DWORD ref_color;
-    BYTE *buf, *chroma_buf, *u_buf, *v_buf;
+    BYTE *buf, *chroma_buf, *u_buf = NULL, *v_buf = NULL;
     UINT width = 20, height = 16;
     IDirect3DDevice9 *device;
     ULONG refcount;
@@ -17304,7 +17308,11 @@ static void add_dirty_rect_test(void)
     fill_surface(surface_managed, 0x0000ff00, D3DLOCK_NO_DIRTY_UPDATE);
     add_dirty_rect_test_draw(device);
     color = getPixelColor(device, 320, 240);
+#if defined(STAGING_CSMT)
+    todo_wine ok(color_match(color, 0x00ff0000, 1),
+#else  /* STAGING_CSMT */
     ok(color_match(color, 0x00ff0000, 1),
+#endif /* STAGING_CSMT */
             "Expected color 0x00ff0000, got 0x%08x.\n", color);
     hr = IDirect3DDevice9_Present(device, NULL, NULL, NULL, NULL);
     ok(SUCCEEDED(hr), "Failed to present, hr %#x.\n", hr);
@@ -19263,9 +19271,6 @@ static void test_vertex_blending(void)
         hr = IDirect3DDevice9_EndScene(device);
         ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
 
-        hr = IDirect3DDevice9_Present(device, NULL, NULL, NULL, NULL);
-        ok(hr == D3D_OK, "IDirect3DDevice9_Present failed with %08x\n", hr);
-
         point = tests[i].quad_points;
         while (point->x != -1 && point->y != -1)
         {
@@ -19281,6 +19286,9 @@ static void test_vertex_blending(void)
             ok(color_match(color, 0x00000000, 1), "Unexpected quad at %dx%d.\n", point->x, point->y);
             ++point;
         }
+
+        hr = IDirect3DDevice9_Present(device, NULL, NULL, NULL, NULL);
+        ok(SUCCEEDED(hr), "Failed to present, hr %#x.\n", hr);
     }
 
     refcount = IDirect3DDevice9_Release(device);

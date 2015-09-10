@@ -2,7 +2,7 @@
  *    Font and collections
  *
  * Copyright 2011 Huw Davies
- * Copyright 2012, 2014 Nikolay Sivov for CodeWeavers
+ * Copyright 2012, 2014-2015 Nikolay Sivov for CodeWeavers
  * Copyright 2014 Aric Stewart for CodeWeavers
  *
  * This library is free software; you can redistribute it and/or
@@ -42,11 +42,23 @@ static const FLOAT RECOMMENDED_OUTLINE_AA_THRESHOLD = 100.0f;
 static const FLOAT RECOMMENDED_OUTLINE_A_THRESHOLD = 350.0f;
 static const FLOAT RECOMMENDED_NATURAL_PPEM = 20.0f;
 
-/* common modifiers used in names */
 static const WCHAR extraW[] = {'e','x','t','r','a',0};
 static const WCHAR ultraW[] = {'u','l','t','r','a',0};
 static const WCHAR semiW[] = {'s','e','m','i',0};
 static const WCHAR extW[] = {'e','x','t',0};
+static const WCHAR thinW[] = {'t','h','i','n',0};
+static const WCHAR lightW[] = {'l','i','g','h','t',0};
+static const WCHAR mediumW[] = {'m','e','d','i','u','m',0};
+static const WCHAR blackW[] = {'b','l','a','c','k',0};
+static const WCHAR condensedW[] = {'c','o','n','d','e','n','s','e','d',0};
+static const WCHAR expandedW[] = {'e','x','p','a','n','d','e','d',0};
+static const WCHAR italicW[] = {'i','t','a','l','i','c',0};
+static const WCHAR boldW[] = {'B','o','l','d',0};
+static const WCHAR obliqueW[] = {'O','b','l','i','q','u','e',0};
+static const WCHAR regularW[] = {'R','e','g','u','l','a','r',0};
+static const WCHAR demiW[] = {'d','e','m','i',0};
+static const WCHAR spaceW[] = {' ',0};
+static const WCHAR enusW[] = {'e','n','-','u','s',0};
 
 struct dwrite_font_propvec {
     FLOAT stretch;
@@ -74,6 +86,12 @@ struct dwrite_font_data {
     UINT32 face_index;
 
     WCHAR *facename;
+
+    USHORT simulations;
+
+    /* used to mark font as tested when scanning for simulation candidate */
+    BOOL bold_sim_tested : 1;
+    BOOL oblique_sim_tested : 1;
 };
 
 struct dwrite_fontfamily_data {
@@ -111,7 +129,6 @@ struct dwrite_font {
 
     IDWriteFontFamily *family;
 
-    USHORT simulations;
     DWRITE_FONT_STYLE style;
     struct dwrite_font_data *data;
 };
@@ -751,7 +768,8 @@ static HRESULT WINAPI dwritefontface_GetGdiCompatibleGlyphMetrics(IDWriteFontFac
     DWRITE_GLYPH_METRICS *metrics, BOOL is_sideways)
 {
     struct dwrite_fontface *This = impl_from_IDWriteFontFace2(iface);
-    FLOAT scale;
+    DWRITE_MEASURING_MODE mode;
+    FLOAT scale, size;
     HRESULT hr;
     UINT32 i;
 
@@ -761,7 +779,9 @@ static HRESULT WINAPI dwritefontface_GetGdiCompatibleGlyphMetrics(IDWriteFontFac
     if (m && memcmp(m, &identity, sizeof(*m)))
         FIXME("transform is not supported, %s\n", debugstr_matrix(m));
 
-    scale = emSize * ppdip / This->metrics.designUnitsPerEm;
+    size = emSize * ppdip;
+    scale = size / This->metrics.designUnitsPerEm;
+    mode = use_gdi_natural ? DWRITE_MEASURING_MODE_GDI_NATURAL : DWRITE_MEASURING_MODE_GDI_CLASSIC;
 
     for (i = 0; i < glyph_count; i++) {
         DWRITE_GLYPH_METRICS *ret = metrics + i;
@@ -771,9 +791,11 @@ static HRESULT WINAPI dwritefontface_GetGdiCompatibleGlyphMetrics(IDWriteFontFac
         if (FAILED(hr))
             return hr;
 
+        ret->advanceWidth = freetype_get_glyph_advance(iface, size, glyphs[i], mode);
+        ret->advanceWidth = round_metric(ret->advanceWidth * This->metrics.designUnitsPerEm / size);
+
 #define SCALE_METRIC(x) ret->x = round_metric(round_metric((design.x) * scale) / scale)
         SCALE_METRIC(leftSideBearing);
-        SCALE_METRIC(advanceWidth);
         SCALE_METRIC(rightSideBearing);
         SCALE_METRIC(topSideBearing);
         SCALE_METRIC(advanceHeight);
@@ -884,16 +906,11 @@ static HRESULT WINAPI dwritefontface1_GetDesignGlyphAdvances(IDWriteFontFace2 *i
 
     TRACE("(%p)->(%u %p %p %d)\n", This, glyph_count, glyphs, advances, is_sideways);
 
-    for (i = 0; i < glyph_count; i++) {
-        DWRITE_GLYPH_METRICS metrics = { 0 };
-        HRESULT hr;
+    if (is_sideways)
+        FIXME("sideways mode not supported\n");
 
-        hr = IDWriteFontFace2_GetDesignGlyphMetrics(iface, glyphs + i, 1, &metrics, is_sideways);
-        if (FAILED(hr))
-            return hr;
-
-        advances[i] = is_sideways ? metrics.advanceHeight : metrics.advanceWidth;
-    }
+    for (i = 0; i < glyph_count; i++)
+        advances[i] = freetype_get_glyph_advance(iface, This->metrics.designUnitsPerEm, glyphs[i], DWRITE_MEASURING_MODE_NATURAL);
 
     return S_OK;
 }
@@ -903,8 +920,7 @@ static HRESULT WINAPI dwritefontface1_GetGdiCompatibleGlyphAdvances(IDWriteFontF
     BOOL is_sideways, UINT32 glyph_count, UINT16 const *glyphs, INT32 *advances)
 {
     struct dwrite_fontface *This = impl_from_IDWriteFontFace2(iface);
-    FLOAT scale;
-    HRESULT hr;
+    DWRITE_MEASURING_MODE mode;
     UINT32 i;
 
     TRACE("(%p)->(%.2f %.2f %p %d %d %u %p %p)\n", This, em_size, ppdip, m,
@@ -915,8 +931,8 @@ static HRESULT WINAPI dwritefontface1_GetGdiCompatibleGlyphAdvances(IDWriteFontF
         return E_INVALIDARG;
     }
 
-    scale = em_size * ppdip / This->metrics.designUnitsPerEm;
-    if (scale == 0.0) {
+    em_size *= ppdip;
+    if (em_size == 0.0) {
         memset(advances, 0, sizeof(*advances) * glyph_count);
         return S_OK;
     }
@@ -924,14 +940,10 @@ static HRESULT WINAPI dwritefontface1_GetGdiCompatibleGlyphAdvances(IDWriteFontF
     if (m && memcmp(m, &identity, sizeof(*m)))
         FIXME("transform is not supported, %s\n", debugstr_matrix(m));
 
+    mode = use_gdi_natural ? DWRITE_MEASURING_MODE_GDI_NATURAL : DWRITE_MEASURING_MODE_GDI_CLASSIC;
     for (i = 0; i < glyph_count; i++) {
-        hr = IDWriteFontFace2_GetDesignGlyphAdvances(iface, 1, glyphs + i, advances + i, is_sideways);
-        if (FAILED(hr))
-            return hr;
-
-#define SCALE_METRIC(x) x = round_metric(round_metric((x) * scale) / scale)
-        SCALE_METRIC(advances[i]);
-#undef  SCALE_METRIC
+        advances[i] = freetype_get_glyph_advance(iface, em_size, glyphs[i], mode);
+        advances[i] = round_metric(advances[i] * This->metrics.designUnitsPerEm / em_size);
     }
 
     return S_OK;
@@ -1126,7 +1138,7 @@ static HRESULT get_fontface_from_font(struct dwrite_font *font, IDWriteFontFace2
     *fontface = NULL;
 
     hr = IDWriteFactory2_CreateFontFace(data->factory, data->face_type, 1, &data->file,
-            data->face_index, font->simulations, &face);
+            data->face_index, font->data->simulations, &face);
     if (FAILED(hr))
         return hr;
 
@@ -1228,50 +1240,9 @@ static BOOL WINAPI dwritefont_IsSymbolFont(IDWriteFont2 *iface)
 
 static HRESULT WINAPI dwritefont_GetFaceNames(IDWriteFont2 *iface, IDWriteLocalizedStrings **names)
 {
-    static const WCHAR boldobliqueW[] = {'B','o','l','d',' ','O','b','l','i','q','u','e',0};
-    static const WCHAR obliqueW[] = {'O','b','l','i','q','u','e',0};
-    static const WCHAR boldW[] = {'B','o','l','d',0};
-    static const WCHAR enusW[] = {'e','n','-','u','s',0};
-
     struct dwrite_font *This = impl_from_IDWriteFont2(iface);
-    IDWriteLocalizedStrings *strings;
-    const WCHAR *name;
-    HRESULT hr;
-
     TRACE("(%p)->(%p)\n", This, names);
-
-    *names = NULL;
-
-    if (This->simulations == DWRITE_FONT_SIMULATIONS_NONE)
-        return clone_localizedstring(This->data->names, names);
-
-    switch (This->simulations) {
-    case DWRITE_FONT_SIMULATIONS_BOLD|DWRITE_FONT_SIMULATIONS_OBLIQUE:
-        name = boldobliqueW;
-        break;
-    case DWRITE_FONT_SIMULATIONS_BOLD:
-        name = boldW;
-        break;
-    case DWRITE_FONT_SIMULATIONS_OBLIQUE:
-        name = obliqueW;
-        break;
-    default:
-        ERR("unknown simulations %d\n", This->simulations);
-        return E_FAIL;
-    }
-
-    hr = create_localizedstrings(&strings);
-    if (FAILED(hr)) return hr;
-
-    hr = add_localizedstring(strings, enusW, name);
-    if (FAILED(hr)) {
-        IDWriteLocalizedStrings_Release(strings);
-        return hr;
-    }
-
-    *names = strings;
-
-    return S_OK;
+    return clone_localizedstring(This->data->names, names);
 }
 
 static HRESULT WINAPI dwritefont_GetInformationalStrings(IDWriteFont2 *iface,
@@ -1325,7 +1296,7 @@ static DWRITE_FONT_SIMULATIONS WINAPI dwritefont_GetSimulations(IDWriteFont2 *if
 {
     struct dwrite_font *This = impl_from_IDWriteFont2(iface);
     TRACE("(%p)\n", This);
-    return This->simulations;
+    return This->data->simulations;
 }
 
 static void WINAPI dwritefont_GetMetrics(IDWriteFont2 *iface, DWRITE_FONT_METRICS *metrics)
@@ -1455,8 +1426,7 @@ static const IDWriteFont2Vtbl dwritefontvtbl = {
     dwritefont2_IsColorFont
 };
 
-static HRESULT create_font(struct dwrite_font_data *data, IDWriteFontFamily *family, DWRITE_FONT_SIMULATIONS simulations,
-    IDWriteFont **font)
+static HRESULT create_font(struct dwrite_font_data *data, IDWriteFontFamily *family, IDWriteFont **font)
 {
     struct dwrite_font *This;
     *font = NULL;
@@ -1468,14 +1438,9 @@ static HRESULT create_font(struct dwrite_font_data *data, IDWriteFontFamily *fam
     This->ref = 1;
     This->family = family;
     IDWriteFontFamily_AddRef(family);
-    This->simulations = simulations;
     This->style = data->style;
     This->data = data;
     InterlockedIncrement(&This->data->ref);
-
-    /* set oblique style from requested simulation */
-    if ((simulations & DWRITE_FONT_SIMULATIONS_OBLIQUE) && data->style == DWRITE_FONT_STYLE_NORMAL)
-        This->style = DWRITE_FONT_STYLE_OBLIQUE;
 
     *font = (IDWriteFont*)&This->IDWriteFont2_iface;
 
@@ -1556,7 +1521,7 @@ static HRESULT WINAPI dwritefontfamily_GetFont(IDWriteFontFamily *iface, UINT32 
     if (index >= This->data->font_count)
         return E_INVALIDARG;
 
-    return create_font(This->data->fonts[index], iface, DWRITE_FONT_SIMULATIONS_NONE, font);
+    return create_font(This->data->fonts[index], iface, font);
 }
 
 static HRESULT WINAPI dwritefontfamily_GetFamilyNames(IDWriteFontFamily *iface, IDWriteLocalizedStrings **names)
@@ -1610,7 +1575,6 @@ static HRESULT WINAPI dwritefontfamily_GetFirstMatchingFont(IDWriteFontFamily *i
     DWRITE_FONT_STRETCH stretch, DWRITE_FONT_STYLE style, IDWriteFont **font)
 {
     struct dwrite_fontfamily *This = impl_from_IDWriteFontFamily(iface);
-    DWRITE_FONT_SIMULATIONS simulations;
     struct dwrite_font_propvec req;
     struct dwrite_font_data *match;
     UINT32 i;
@@ -1630,13 +1594,7 @@ static HRESULT WINAPI dwritefontfamily_GetFirstMatchingFont(IDWriteFontFamily *i
             match = This->data->fonts[i];
     }
 
-    simulations = DWRITE_FONT_SIMULATIONS_NONE;
-    if (((style == DWRITE_FONT_STYLE_ITALIC) || (style == DWRITE_FONT_STYLE_OBLIQUE)) &&
-        match->style == DWRITE_FONT_STYLE_NORMAL) {
-        simulations = DWRITE_FONT_SIMULATIONS_OBLIQUE;
-    }
-
-    return create_font(match, iface, simulations, font);
+    return create_font(match, iface, font);
 }
 
 static HRESULT WINAPI dwritefontfamily_GetMatchingFonts(IDWriteFontFamily *iface, DWRITE_FONT_WEIGHT weight,
@@ -1810,7 +1768,6 @@ static HRESULT WINAPI dwritefontcollection_GetFontFromFontFace(IDWriteFontCollec
     struct dwrite_fontcollection *This = impl_from_IDWriteFontCollection(iface);
     struct dwrite_fontfamily_data *found_family = NULL;
     struct dwrite_font_data *found_font = NULL;
-    DWRITE_FONT_SIMULATIONS simulations;
     IDWriteFontFamily *family;
     UINT32 i, j, face_index;
     IDWriteFontFile *file;
@@ -1849,8 +1806,7 @@ static HRESULT WINAPI dwritefontcollection_GetFontFromFontFace(IDWriteFontCollec
     if (FAILED(hr))
         return hr;
 
-    simulations = IDWriteFontFace_GetSimulations(face);
-    hr = create_font(found_font, family, simulations, font);
+    hr = create_font(found_font, family, font);
     IDWriteFontFamily_Release(family);
     return hr;
 }
@@ -1910,10 +1866,10 @@ static HRESULT init_font_collection(struct dwrite_fontcollection *collection, BO
     collection->IDWriteFontCollection_iface.lpVtbl = &fontcollectionvtbl;
     collection->ref = 1;
     collection->family_count = 0;
-    collection->family_alloc = 2;
+    collection->family_alloc = is_system ? 30 : 5;
     collection->is_system = is_system;
 
-    collection->family_data = heap_alloc(sizeof(*collection->family_data)*2);
+    collection->family_data = heap_alloc(sizeof(*collection->family_data) * collection->family_alloc);
     if (!collection->family_data)
         return E_OUTOFMEMORY;
 
@@ -1947,7 +1903,6 @@ HRESULT get_filestream_from_file(IDWriteFontFile *file, IDWriteFontFileStream **
 
 static void fontstrings_get_en_string(IDWriteLocalizedStrings *strings, WCHAR *buffer, UINT32 size)
 {
-    static const WCHAR enusW[] = {'e','n','-','U','S',0};
     BOOL exists = FALSE;
     UINT32 index;
     HRESULT hr;
@@ -1983,7 +1938,8 @@ static int trim_spaces(WCHAR *in, WCHAR *ret)
 struct name_token {
     struct list entry;
     const WCHAR *ptr;
-    INT len;
+    INT len;     /* token length */
+    INT fulllen; /* full length including following separators */
 };
 
 static inline BOOL is_name_separator_char(WCHAR ch)
@@ -1996,13 +1952,13 @@ struct name_pattern {
     const WCHAR *part2; /* optional, if not NULL should point to non-empty string */
 };
 
-static BOOL match_pattern_list(struct list *tokens, const struct name_pattern *patterns)
+static BOOL match_pattern_list(struct list *tokens, const struct name_pattern *patterns, struct name_token *match)
 {
     const struct name_pattern *pattern;
     struct name_token *token;
     int i = 0;
 
-    while ((pattern = &patterns[++i])->part1) {
+    while ((pattern = &patterns[i++])->part1) {
         int len_part1 = strlenW(pattern->part1);
         int len_part2 = pattern->part2 ? strlenW(pattern->part2) : 0;
 
@@ -2013,6 +1969,7 @@ static BOOL match_pattern_list(struct list *tokens, const struct name_pattern *p
                     continue;
 
                 if (!strncmpiW(token->ptr, pattern->part1, len_part1)) {
+                    if (match) *match = *token;
                     list_remove(&token->entry);
                     heap_free(token);
                     return TRUE;
@@ -2035,6 +1992,7 @@ static BOOL match_pattern_list(struct list *tokens, const struct name_pattern *p
                         continue;
 
                     /* combined string match */
+                    if (match) *match = *token;
                     list_remove(&token->entry);
                     heap_free(token);
                     return TRUE;
@@ -2057,6 +2015,10 @@ static BOOL match_pattern_list(struct list *tokens, const struct name_pattern *p
                         continue;
 
                     /* both parts matched, remove tokens */
+                    if (match) {
+                        match->ptr = next_token->ptr;
+                        match->len = (token->ptr - next_token->ptr) + token->len;
+                    }
                     list_remove(&token->entry);
                     list_remove(&next_token->entry);
                     heap_free(next_token);
@@ -2067,19 +2029,21 @@ static BOOL match_pattern_list(struct list *tokens, const struct name_pattern *p
         }
     }
 
+    if (match) {
+        match->ptr = NULL;
+        match->len = 0;
+    }
     return FALSE;
 }
 
-static DWRITE_FONT_STYLE font_extract_style(struct list *tokens, DWRITE_FONT_STYLE style)
+static DWRITE_FONT_STYLE font_extract_style(struct list *tokens, DWRITE_FONT_STYLE style, struct name_token *match)
 {
     static const WCHAR itaW[] = {'i','t','a',0};
     static const WCHAR italW[] = {'i','t','a','l',0};
-    static const WCHAR italicW[] = {'i','t','a','l','i','c',0};
     static const WCHAR cursiveW[] = {'c','u','r','s','i','v','e',0};
     static const WCHAR kursivW[] = {'k','u','r','s','i','v',0};
 
     static const WCHAR inclinedW[] = {'i','n','c','l','i','n','e','d',0};
-    static const WCHAR obliqueW[] = {'o','b','l','i','q','u','e',0};
     static const WCHAR backslantedW[] = {'b','a','c','k','s','l','a','n','t','e','d',0};
     static const WCHAR backslantW[] = {'b','a','c','k','s','l','a','n','t',0};
     static const WCHAR slantedW[] = {'s','l','a','n','t','e','d',0};
@@ -2103,21 +2067,20 @@ static DWRITE_FONT_STYLE font_extract_style(struct list *tokens, DWRITE_FONT_STY
     };
 
     /* italic patterns first */
-    if (match_pattern_list(tokens, italic_patterns))
+    if (match_pattern_list(tokens, italic_patterns, match))
         return DWRITE_FONT_STYLE_ITALIC;
 
     /* oblique patterns */
-    if (match_pattern_list(tokens, oblique_patterns))
+    if (match_pattern_list(tokens, oblique_patterns, match))
         return DWRITE_FONT_STYLE_OBLIQUE;
 
     return style;
 }
 
-static DWRITE_FONT_STRETCH font_extract_stretch(struct list *tokens, DWRITE_FONT_STRETCH stretch)
+static DWRITE_FONT_STRETCH font_extract_stretch(struct list *tokens, DWRITE_FONT_STRETCH stretch,
+    struct name_token *match)
 {
     static const WCHAR compressedW[] = {'c','o','m','p','r','e','s','s','e','d',0};
-    static const WCHAR condensedW[] = {'c','o','n','d','e','n','s','e','d',0};
-    static const WCHAR expandedW[] = {'e','x','p','a','n','d','e','d',0};
     static const WCHAR extendedW[] = {'e','x','t','e','n','d','e','d',0};
     static const WCHAR compactW[] = {'c','o','m','p','a','c','t',0};
     static const WCHAR narrowW[] = {'n','a','r','r','o','w',0};
@@ -2183,42 +2146,37 @@ static DWRITE_FONT_STRETCH font_extract_stretch(struct list *tokens, DWRITE_FONT
         { NULL }
     };
 
-    if (match_pattern_list(tokens, ultracondensed_patterns))
+    if (match_pattern_list(tokens, ultracondensed_patterns, match))
         return DWRITE_FONT_STRETCH_ULTRA_CONDENSED;
 
-    if (match_pattern_list(tokens, extracondensed_patterns))
+    if (match_pattern_list(tokens, extracondensed_patterns, match))
         return DWRITE_FONT_STRETCH_EXTRA_CONDENSED;
 
-    if (match_pattern_list(tokens, semicondensed_patterns))
+    if (match_pattern_list(tokens, semicondensed_patterns, match))
         return DWRITE_FONT_STRETCH_SEMI_CONDENSED;
 
-    if (match_pattern_list(tokens, semiexpanded_patterns))
+    if (match_pattern_list(tokens, semiexpanded_patterns, match))
         return DWRITE_FONT_STRETCH_SEMI_EXPANDED;
 
-    if (match_pattern_list(tokens, extraexpanded_patterns))
+    if (match_pattern_list(tokens, extraexpanded_patterns, match))
         return DWRITE_FONT_STRETCH_EXTRA_EXPANDED;
 
-    if (match_pattern_list(tokens, ultraexpanded_patterns))
+    if (match_pattern_list(tokens, ultraexpanded_patterns, match))
         return DWRITE_FONT_STRETCH_ULTRA_EXPANDED;
 
-    if (match_pattern_list(tokens, condensed_patterns))
+    if (match_pattern_list(tokens, condensed_patterns, match))
         return DWRITE_FONT_STRETCH_CONDENSED;
 
-    if (match_pattern_list(tokens, expanded_patterns))
+    if (match_pattern_list(tokens, expanded_patterns, match))
         return DWRITE_FONT_STRETCH_EXPANDED;
 
     return stretch;
 }
 
-static DWRITE_FONT_WEIGHT font_extract_weight(struct list *tokens, DWRITE_FONT_WEIGHT weight)
+static DWRITE_FONT_WEIGHT font_extract_weight(struct list *tokens, DWRITE_FONT_WEIGHT weight,
+    struct name_token *match)
 {
-    static const WCHAR mediumW[] = {'m','e','d','i','u','m',0};
-    static const WCHAR blackW[] = {'b','l','a','c','k',0};
     static const WCHAR heavyW[] = {'h','e','a','v','y',0};
-    static const WCHAR lightW[] = {'l','i','g','h','t',0};
-    static const WCHAR boldW[] = {'b','o','l','d',0};
-    static const WCHAR demiW[] = {'d','e','m','i',0};
-    static const WCHAR thinW[] = {'t','h','i','n',0};
     static const WCHAR nordW[] = {'n','o','r','d',0};
 
     static const struct name_pattern thin_patterns[] = {
@@ -2232,6 +2190,11 @@ static DWRITE_FONT_WEIGHT font_extract_weight(struct list *tokens, DWRITE_FONT_W
         { extraW, lightW },
         { extW, lightW },
         { ultraW, lightW },
+        { NULL }
+    };
+
+    static const struct name_pattern semilight_patterns[] = {
+        { semiW, lightW },
         { NULL }
     };
 
@@ -2295,43 +2258,46 @@ static DWRITE_FONT_WEIGHT font_extract_weight(struct list *tokens, DWRITE_FONT_W
     /* FIXME: allow optional 'face' suffix, separated or not. It's removed together with
        matching pattern. */
 
-    if (match_pattern_list(tokens, thin_patterns))
+    if (match_pattern_list(tokens, thin_patterns, match))
         return DWRITE_FONT_WEIGHT_THIN;
 
-    if (match_pattern_list(tokens, extralight_patterns))
+    if (match_pattern_list(tokens, extralight_patterns, match))
         return DWRITE_FONT_WEIGHT_EXTRA_LIGHT;
 
-    if (match_pattern_list(tokens, demibold_patterns))
+    if (match_pattern_list(tokens, semilight_patterns, match))
+        return DWRITE_FONT_WEIGHT_SEMI_LIGHT;
+
+    if (match_pattern_list(tokens, demibold_patterns, match))
         return DWRITE_FONT_WEIGHT_DEMI_BOLD;
 
-    if (match_pattern_list(tokens, extrabold_patterns))
+    if (match_pattern_list(tokens, extrabold_patterns, match))
         return DWRITE_FONT_WEIGHT_EXTRA_BOLD;
 
-    if (match_pattern_list(tokens, extrablack_patterns))
+    if (match_pattern_list(tokens, extrablack_patterns, match))
         return DWRITE_FONT_WEIGHT_EXTRA_BLACK;
 
-    if (match_pattern_list(tokens, bold_patterns))
+    if (match_pattern_list(tokens, bold_patterns, match))
         return DWRITE_FONT_WEIGHT_BOLD;
 
-    if (match_pattern_list(tokens, thin2_patterns))
+    if (match_pattern_list(tokens, thin2_patterns, match))
         return DWRITE_FONT_WEIGHT_THIN;
 
-    if (match_pattern_list(tokens, light_patterns))
+    if (match_pattern_list(tokens, light_patterns, match))
         return DWRITE_FONT_WEIGHT_LIGHT;
 
-    if (match_pattern_list(tokens, medium_patterns))
+    if (match_pattern_list(tokens, medium_patterns, match))
         return DWRITE_FONT_WEIGHT_MEDIUM;
 
-    if (match_pattern_list(tokens, black_patterns))
+    if (match_pattern_list(tokens, black_patterns, match))
         return DWRITE_FONT_WEIGHT_BLACK;
 
-    if (match_pattern_list(tokens, black_patterns))
+    if (match_pattern_list(tokens, black_patterns, match))
         return DWRITE_FONT_WEIGHT_BLACK;
 
-    if (match_pattern_list(tokens, demibold2_patterns))
+    if (match_pattern_list(tokens, demibold2_patterns, match))
         return DWRITE_FONT_WEIGHT_DEMI_BOLD;
 
-    if (match_pattern_list(tokens, extrabold2_patterns))
+    if (match_pattern_list(tokens, extrabold2_patterns, match))
         return DWRITE_FONT_WEIGHT_EXTRA_BOLD;
 
     /* FIXME: use abbreviated names to extract weight */
@@ -2339,7 +2305,66 @@ static DWRITE_FONT_WEIGHT font_extract_weight(struct list *tokens, DWRITE_FONT_W
     return weight;
 }
 
-static void font_apply_differentiation_rules(struct dwrite_font_data *font, WCHAR *familyW, WCHAR *faceW)
+struct knownweight_entry {
+    const WCHAR *nameW;
+    DWRITE_FONT_WEIGHT weight;
+};
+
+static int compare_knownweights(const void *a, const void* b)
+{
+    DWRITE_FONT_WEIGHT target = *(DWRITE_FONT_WEIGHT*)a;
+    const struct knownweight_entry *entry = (struct knownweight_entry*)b;
+    int ret = 0;
+
+    if (target > entry->weight)
+        ret = 1;
+    else if (target < entry->weight)
+        ret = -1;
+
+    return ret;
+}
+
+static BOOL is_known_weight_value(DWRITE_FONT_WEIGHT weight, WCHAR *nameW)
+{
+    static const WCHAR extralightW[] = {'E','x','t','r','a',' ','L','i','g','h','t',0};
+    static const WCHAR semilightW[] = {'S','e','m','i',' ','L','i','g','h','t',0};
+    static const WCHAR extrablackW[] = {'E','x','t','r','a',' ','B','l','a','c','k',0};
+    static const WCHAR extraboldW[] = {'E','x','t','r','a',' ','B','o','l','d',0};
+    static const WCHAR demiboldW[] = {'D','e','m','i',' ','B','o','l','d',0};
+    const struct knownweight_entry *ptr;
+
+    static const struct knownweight_entry knownweights[] = {
+        { thinW,       DWRITE_FONT_WEIGHT_THIN },
+        { extralightW, DWRITE_FONT_WEIGHT_EXTRA_LIGHT },
+        { lightW,      DWRITE_FONT_WEIGHT_LIGHT },
+        { semilightW,  DWRITE_FONT_WEIGHT_SEMI_LIGHT },
+        { mediumW,     DWRITE_FONT_WEIGHT_MEDIUM },
+        { demiboldW,   DWRITE_FONT_WEIGHT_DEMI_BOLD },
+        { boldW,       DWRITE_FONT_WEIGHT_BOLD },
+        { extraboldW,  DWRITE_FONT_WEIGHT_EXTRA_BOLD },
+        { blackW,      DWRITE_FONT_WEIGHT_BLACK },
+        { extrablackW, DWRITE_FONT_WEIGHT_EXTRA_BLACK }
+    };
+
+    ptr = bsearch(&weight, knownweights, sizeof(knownweights)/sizeof(knownweights[0]), sizeof(knownweights[0]),
+        compare_knownweights);
+    if (!ptr) {
+        nameW[0] = 0;
+        return FALSE;
+    }
+
+    strcpyW(nameW, ptr->nameW);
+    return TRUE;
+}
+
+static inline void font_name_token_to_str(const struct name_token *name, WCHAR *strW)
+{
+    memcpy(strW, name->ptr, name->len * sizeof(WCHAR));
+    strW[name->len] = 0;
+}
+
+/* Modifies facenameW string, and returns pointer to regular term that was removed */
+static const WCHAR *facename_remove_regular_term(WCHAR *facenameW, INT len)
 {
     static const WCHAR bookW[] = {'B','o','o','k',0};
     static const WCHAR normalW[] = {'N','o','r','m','a','l',0};
@@ -2356,24 +2381,16 @@ static void font_apply_differentiation_rules(struct dwrite_font_data *font, WCHA
         NULL
     };
 
-    static const WCHAR spaceW[] = {' ',0};
-    WCHAR familynameW[255], facenameW[255];
-    struct name_token *token, *token2;
-    DWRITE_FONT_STRETCH stretch;
-    DWRITE_FONT_WEIGHT weight;
-    BOOL found = FALSE;
-    struct list tokens;
-    const WCHAR *ptr;
-    int len, i = 0;
+    const WCHAR *regular_ptr = NULL, *ptr;
+    int i = 0;
 
-    /* remove leading and trailing spaces from family and face name */
-    trim_spaces(familyW, familynameW);
-    len = trim_spaces(faceW, facenameW);
+    if (len == -1)
+        len = strlenW(facenameW);
 
     /* remove rightmost regular variant from face name */
-    while (!found && (ptr = regular_patterns[i++])) {
-        WCHAR *src;
+    while (!regular_ptr && (ptr = regular_patterns[i++])) {
         int pattern_len = strlenW(ptr);
+        WCHAR *src;
 
         if (pattern_len > len)
             continue;
@@ -2383,13 +2400,81 @@ static void font_apply_differentiation_rules(struct dwrite_font_data *font, WCHA
             if (!strncmpiW(src, ptr, pattern_len)) {
                 memmove(src, src + pattern_len, (len - pattern_len - (src - facenameW) + 1)*sizeof(WCHAR));
                 len = strlenW(facenameW);
-                found = TRUE;
+                regular_ptr = ptr;
                 break;
             }
             else
                 src--;
         }
     }
+
+    return regular_ptr;
+}
+
+static void fontname_tokenize(struct list *tokens, const WCHAR *nameW)
+{
+    const WCHAR *ptr;
+
+    list_init(tokens);
+    ptr = nameW;
+
+    while (*ptr) {
+        struct name_token *token = heap_alloc(sizeof(*token));
+        token->ptr = ptr;
+        token->len = 0;
+        token->fulllen = 0;
+
+        while (*ptr && !is_name_separator_char(*ptr)) {
+            token->len++;
+            token->fulllen++;
+            ptr++;
+        }
+
+        /* skip separators */
+        while (is_name_separator_char(*ptr)) {
+            token->fulllen++;
+            ptr++;
+        }
+
+        list_add_head(tokens, &token->entry);
+    }
+}
+
+static void fontname_tokens_to_str(struct list *tokens, WCHAR *nameW)
+{
+    struct name_token *token, *token2;
+    LIST_FOR_EACH_ENTRY_SAFE_REV(token, token2, tokens, struct name_token, entry) {
+        int len;
+
+        list_remove(&token->entry);
+
+        /* don't include last separator */
+        len = list_empty(tokens) ? token->len : token->fulllen;
+        memcpy(nameW, token->ptr, len * sizeof(WCHAR));
+        nameW += len;
+
+        heap_free(token);
+    }
+    *nameW = 0;
+}
+
+static BOOL font_apply_differentiation_rules(struct dwrite_font_data *font, WCHAR *familyW, WCHAR *faceW)
+{
+    struct name_token stretch_name, weight_name, style_name;
+    WCHAR familynameW[255], facenameW[255], finalW[255];
+    WCHAR weightW[32], stretchW[32], styleW[32];
+    const WCHAR *regular_ptr = NULL;
+    DWRITE_FONT_STRETCH stretch;
+    DWRITE_FONT_WEIGHT weight;
+    struct list tokens;
+    int len;
+
+    /* remove leading and trailing spaces from family and face name */
+    trim_spaces(familyW, familynameW);
+    len = trim_spaces(faceW, facenameW);
+
+    /* remove rightmost regular variant from face name */
+    regular_ptr = facename_remove_regular_term(facenameW, len);
 
     /* append face name to family name, FIXME check if face name is a substring of family name */
     if (*facenameW) {
@@ -2398,34 +2483,16 @@ static void font_apply_differentiation_rules(struct dwrite_font_data *font, WCHA
     }
 
     /* tokenize with " .-_" */
-    list_init(&tokens);
-    ptr = familynameW;
-
-    while (*ptr) {
-        struct name_token *token = heap_alloc(sizeof(*token));
-        token->ptr = ptr;
-        token->len = 0;
-
-        while (*ptr && !is_name_separator_char(*ptr)) {
-            token->len++;
-            ptr++;
-        }
-
-        /* skip separators */
-        while (is_name_separator_char(*ptr))
-            ptr++;
-
-        list_add_head(&tokens, &token->entry);
-    }
+    fontname_tokenize(&tokens, familynameW);
 
     /* extract and resolve style */
-    font->style = font_extract_style(&tokens, font->style);
+    font->style = font_extract_style(&tokens, font->style, &style_name);
 
     /* extract stretch */
-    stretch = font_extract_stretch(&tokens, font->stretch);
+    stretch = font_extract_stretch(&tokens, font->stretch, &stretch_name);
 
     /* extract weight */
-    weight = font_extract_weight(&tokens, font->weight);
+    weight = font_extract_weight(&tokens, font->weight, &weight_name);
 
     /* resolve weight */
     if (weight != font->weight) {
@@ -2454,13 +2521,95 @@ static void font_apply_differentiation_rules(struct dwrite_font_data *font, WCHA
         }
     }
 
-    /* FIXME: cleanup face name from possible 2-3 digit prefixes, compose final family/face names */
+    /* FIXME: cleanup face name from possible 2-3 digit prefixes */
 
-    /* release tokens */
-    LIST_FOR_EACH_ENTRY_SAFE(token, token2, &tokens, struct name_token, entry) {
-        list_remove(&token->entry);
-        heap_free(token);
+    /* get final combined string from what's left in token list, list is released */
+    fontname_tokens_to_str(&tokens, finalW);
+
+    if (!strcmpW(familyW, finalW))
+        return FALSE;
+
+    /* construct face name */
+    strcpyW(familyW, finalW);
+
+    /* resolved weight name */
+    if (weight_name.ptr)
+        font_name_token_to_str(&weight_name, weightW);
+    /* ignore normal weight */
+    else if (font->weight == DWRITE_FONT_WEIGHT_NORMAL)
+        weightW[0] = 0;
+    /* for known weight values use appropriate names */
+    else if (is_known_weight_value(font->weight, weightW)) {
     }
+    /* use Wnnn format as a fallback in case weight is not one of defined values */
+    else {
+        static const WCHAR fmtW[] = {'W','%','d',0};
+        sprintfW(weightW, fmtW, font->weight);
+    }
+
+    /* resolved stretch name */
+    if (stretch_name.ptr)
+        font_name_token_to_str(&stretch_name, stretchW);
+    /* ignore normal stretch */
+    else if (font->stretch == DWRITE_FONT_STRETCH_NORMAL)
+        stretchW[0] = 0;
+    /* use predefined stretch names */
+    else {
+        static const WCHAR ultracondensedW[] = {'U','l','t','r','a',' ','C','o','n','d','e','n','s','e','d',0};
+        static const WCHAR extracondensedW[] = {'E','x','t','r','a',' ','C','o','n','d','e','n','s','e','d',0};
+        static const WCHAR semicondensedW[] = {'S','e','m','i',' ','C','o','n','d','e','n','s','e','d',0};
+        static const WCHAR semiexpandedW[] = {'S','e','m','i',' ','E','x','p','a','n','d','e','d',0};
+        static const WCHAR extraexpandedW[] = {'E','x','t','r','a',' ','E','x','p','a','n','d','e','d',0};
+        static const WCHAR ultraexpandedW[] = {'U','l','t','r','a',' ','E','x','p','a','n','d','e','d',0};
+
+        static const WCHAR *stretchnamesW[] = {
+            ultracondensedW,
+            extracondensedW,
+            condensedW,
+            semicondensedW,
+            NULL, /* DWRITE_FONT_STRETCH_NORMAL */
+            semiexpandedW,
+            expandedW,
+            extraexpandedW,
+            ultraexpandedW
+        };
+        strcpyW(stretchW, stretchnamesW[font->stretch]);
+    }
+
+    /* resolved style name */
+    if (style_name.ptr)
+        font_name_token_to_str(&style_name, styleW);
+    else if (font->style == DWRITE_FONT_STYLE_NORMAL)
+        styleW[0] = 0;
+    /* use predefined names */
+    else {
+        if (font->style == DWRITE_FONT_STYLE_ITALIC)
+            strcpyW(styleW, italicW);
+        else
+            strcpyW(styleW, obliqueW);
+    }
+
+    /* use Regular match if it was found initially */
+    if (!*weightW && !*stretchW && !*styleW)
+        strcpyW(faceW, regular_ptr ? regular_ptr : regularW);
+    else {
+        faceW[0] = 0;
+        if (*stretchW)
+            strcpyW(faceW, stretchW);
+        if (*weightW) {
+            if (*faceW)
+                strcatW(faceW, spaceW);
+            strcatW(faceW, weightW);
+        }
+        if (*styleW) {
+            if (*faceW)
+                strcatW(faceW, spaceW);
+            strcatW(faceW, styleW);
+        }
+    }
+
+    TRACE("resolved family %s, face %s\n", debugstr_w(familyW), debugstr_w(faceW));
+    return TRUE;
 }
 
 static HRESULT init_font_data(IDWriteFactory2 *factory, IDWriteFontFile *file, DWRITE_FONT_FACE_TYPE face_type, UINT32 face_index,
@@ -2488,6 +2637,9 @@ static HRESULT init_font_data(IDWriteFactory2 *factory, IDWriteFontFile *file, D
     data->file = file;
     data->face_index = face_index;
     data->face_type = face_type;
+    data->simulations = DWRITE_FONT_SIMULATIONS_NONE;
+    data->bold_sim_tested = FALSE;
+    data->oblique_sim_tested = FALSE;
     IDWriteFontFile_AddRef(file);
     IDWriteFactory2_AddRef(factory);
 
@@ -2511,13 +2663,47 @@ static HRESULT init_font_data(IDWriteFactory2 *factory, IDWriteFontFile *file, D
 
     fontstrings_get_en_string(*family_name, familyW, sizeof(familyW)/sizeof(WCHAR));
     fontstrings_get_en_string(data->names, faceW, sizeof(faceW)/sizeof(WCHAR));
-    font_apply_differentiation_rules(data, familyW, faceW);
+    if (font_apply_differentiation_rules(data, familyW, faceW)) {
+        set_en_localizedstring(*family_name, familyW);
+        set_en_localizedstring(data->names, faceW);
+    }
 
     init_font_prop_vec(data->weight, data->stretch, data->style, &data->propvec);
 
     *ret = data;
     return S_OK;
 }
+
+static HRESULT init_font_data_from_font(const struct dwrite_font_data *src, DWRITE_FONT_SIMULATIONS sim, const WCHAR *facenameW,
+    struct dwrite_font_data **ret)
+{
+    struct dwrite_font_data *data;
+
+    *ret = NULL;
+    data = heap_alloc_zero(sizeof(*data));
+    if (!data)
+        return E_OUTOFMEMORY;
+
+    *data = *src;
+    data->ref = 1;
+    data->simulations |= sim;
+    if (sim == DWRITE_FONT_SIMULATIONS_BOLD)
+        data->weight = DWRITE_FONT_WEIGHT_BOLD;
+    else if (sim == DWRITE_FONT_SIMULATIONS_OBLIQUE)
+        data->style = DWRITE_FONT_STYLE_OBLIQUE;
+    memset(data->info_strings, 0, sizeof(data->info_strings));
+    data->names = NULL;
+    IDWriteFactory2_AddRef(data->factory);
+    IDWriteFontFile_AddRef(data->file);
+
+    create_localizedstrings(&data->names);
+    add_localizedstring(data->names, enusW, facenameW);
+
+    init_font_prop_vec(data->weight, data->stretch, data->style, &data->propvec);
+
+    *ret = data;
+    return S_OK;
+};
 
 static HRESULT init_fontfamily_data(IDWriteLocalizedStrings *familyname, struct dwrite_fontfamily_data **ret)
 {
@@ -2544,11 +2730,152 @@ static HRESULT init_fontfamily_data(IDWriteLocalizedStrings *familyname, struct 
     return S_OK;
 }
 
+static void fontfamily_add_bold_simulated_face(struct dwrite_fontfamily_data *family)
+{
+    UINT32 i, j, heaviest;
+
+    for (i = 0; i < family->font_count; i++) {
+        DWRITE_FONT_WEIGHT weight = family->fonts[i]->weight;
+        heaviest = i;
+
+        if (family->fonts[i]->bold_sim_tested)
+            continue;
+
+        family->fonts[i]->bold_sim_tested = TRUE;
+        for (j = i; j < family->font_count; j++) {
+            if (family->fonts[j]->bold_sim_tested)
+                continue;
+
+            if ((family->fonts[i]->style == family->fonts[j]->style) &&
+                (family->fonts[i]->stretch == family->fonts[j]->stretch)) {
+                if (family->fonts[j]->weight > weight) {
+                    weight = family->fonts[j]->weight;
+                    heaviest = j;
+                }
+                family->fonts[j]->bold_sim_tested = TRUE;
+            }
+        }
+
+        if (weight >= DWRITE_FONT_WEIGHT_SEMI_LIGHT && weight <= 550) {
+            static const struct name_pattern weightsim_patterns[] = {
+                { extraW, lightW },
+                { extW, lightW },
+                { ultraW, lightW },
+                { semiW, lightW },
+                { semiW, boldW },
+                { demiW, boldW },
+                { boldW },
+                { thinW },
+                { lightW },
+                { mediumW },
+                { demiW },
+                { NULL }
+            };
+
+            WCHAR facenameW[255], initialW[255];
+            struct dwrite_font_data *boldface;
+            struct list tokens;
+
+            /* add Bold simulation based on heaviest face data */
+
+            /* Simulated face name should only contain Bold as weight term,
+               so remove existing regular and weight terms. */
+            fontstrings_get_en_string(family->fonts[heaviest]->names, initialW, sizeof(initialW)/sizeof(WCHAR));
+            facename_remove_regular_term(initialW, -1);
+
+            /* remove current weight pattern */
+            fontname_tokenize(&tokens, initialW);
+            match_pattern_list(&tokens, weightsim_patterns, NULL);
+            fontname_tokens_to_str(&tokens, facenameW);
+
+            /* Bold suffix for new name */
+            if (*facenameW)
+                strcatW(facenameW, spaceW);
+            strcatW(facenameW, boldW);
+
+            if (init_font_data_from_font(family->fonts[heaviest], DWRITE_FONT_SIMULATIONS_BOLD, facenameW, &boldface) == S_OK) {
+                boldface->bold_sim_tested = TRUE;
+                fontfamily_add_font(family, boldface);
+            }
+        }
+    }
+}
+
+static void fontfamily_add_oblique_simulated_face(struct dwrite_fontfamily_data *family)
+{
+    UINT32 i, j;
+
+    for (i = 0; i < family->font_count; i++) {
+        UINT32 regular = ~0u, oblique = ~0u;
+        struct dwrite_font_data *obliqueface;
+        WCHAR facenameW[255];
+
+        if (family->fonts[i]->oblique_sim_tested)
+            continue;
+
+        family->fonts[i]->oblique_sim_tested = TRUE;
+        if (family->fonts[i]->style == DWRITE_FONT_STYLE_NORMAL)
+            regular = i;
+        else if (family->fonts[i]->style == DWRITE_FONT_STYLE_OBLIQUE)
+            oblique = i;
+
+        /* find regular style with same weight/stretch values */
+        for (j = i; j < family->font_count; j++) {
+            if (family->fonts[j]->oblique_sim_tested)
+                continue;
+
+            if ((family->fonts[i]->weight == family->fonts[j]->weight) &&
+                (family->fonts[i]->stretch == family->fonts[j]->stretch)) {
+
+                family->fonts[j]->oblique_sim_tested = TRUE;
+                if (regular == ~0 && family->fonts[j]->style == DWRITE_FONT_STYLE_NORMAL)
+                    regular = j;
+
+                if (oblique == ~0 && family->fonts[j]->style == DWRITE_FONT_STYLE_OBLIQUE)
+                    oblique = j;
+            }
+
+            if (regular != ~0u && oblique != ~0u)
+                break;
+        }
+
+        /* no regular variant for this weight/stretch pair, nothing to base simulated face on */
+        if (regular == ~0u)
+            continue;
+
+        /* regular face exists, and corresponding oblique is present as well, nothing to do */
+        if (oblique != ~0u)
+            continue;
+
+        /* add oblique simulation based on this regular face */
+
+        /* remove regular term if any, append 'Oblique' */
+        fontstrings_get_en_string(family->fonts[regular]->names, facenameW, sizeof(facenameW)/sizeof(WCHAR));
+        facename_remove_regular_term(facenameW, -1);
+
+        if (*facenameW)
+            strcatW(facenameW, spaceW);
+        strcatW(facenameW, obliqueW);
+
+        if (init_font_data_from_font(family->fonts[regular], DWRITE_FONT_SIMULATIONS_OBLIQUE, facenameW, &obliqueface) == S_OK) {
+            obliqueface->oblique_sim_tested = TRUE;
+            fontfamily_add_font(family, obliqueface);
+        }
+    }
+}
+
 HRESULT create_font_collection(IDWriteFactory2* factory, IDWriteFontFileEnumerator *enumerator, BOOL is_system, IDWriteFontCollection **ret)
 {
+    struct fontfile_enum {
+        struct list entry;
+        IDWriteFontFile *file;
+    };
+    struct fontfile_enum *fileenum, *fileenum2;
     struct dwrite_fontcollection *collection;
+    struct list scannedfiles;
     BOOL current = FALSE;
     HRESULT hr = S_OK;
+    UINT32 i;
 
     *ret = NULL;
 
@@ -2565,12 +2892,13 @@ HRESULT create_font_collection(IDWriteFactory2* factory, IDWriteFontFileEnumerat
 
     TRACE("building font collection:\n");
 
+    list_init(&scannedfiles);
     while (hr == S_OK) {
         DWRITE_FONT_FACE_TYPE face_type;
         DWRITE_FONT_FILE_TYPE file_type;
+        BOOL supported, same = FALSE;
         IDWriteFontFile *file;
-        UINT32 face_count, i;
-        BOOL supported;
+        UINT32 face_count;
 
         current = FALSE;
         hr = IDWriteFontFileEnumerator_MoveNext(enumerator, &current);
@@ -2581,6 +2909,17 @@ HRESULT create_font_collection(IDWriteFactory2* factory, IDWriteFontFileEnumerat
         if (FAILED(hr))
             break;
 
+        /* check if we've scanned this file already */
+        LIST_FOR_EACH_ENTRY(fileenum, &scannedfiles, struct fontfile_enum, entry) {
+            if ((same = is_same_fontfile(fileenum->file, file)))
+                break;
+        }
+
+        if (same) {
+            IDWriteFontFile_Release(file);
+            continue;
+        }
+
         /* failed font files are skipped */
         hr = IDWriteFontFile_Analyze(file, &supported, &file_type, &face_type, &face_count);
         if (FAILED(hr) || !supported || face_count == 0) {
@@ -2589,6 +2928,11 @@ HRESULT create_font_collection(IDWriteFactory2* factory, IDWriteFontFileEnumerat
             hr = S_OK;
             continue;
         }
+
+        /* add to scanned list */
+        fileenum = heap_alloc(sizeof(*fileenum));
+        fileenum->file = file;
+        list_add_tail(&scannedfiles, &fileenum->entry);
 
         for (i = 0; i < face_count; i++) {
             IDWriteLocalizedStrings *family_name = NULL;
@@ -2627,9 +2971,18 @@ HRESULT create_font_collection(IDWriteFactory2* factory, IDWriteFontFileEnumerat
             if (FAILED(hr))
                 break;
         }
+    }
 
-        IDWriteFontFile_Release(file);
-    };
+    LIST_FOR_EACH_ENTRY_SAFE(fileenum, fileenum2, &scannedfiles, struct fontfile_enum, entry) {
+        IDWriteFontFile_Release(fileenum->file);
+        list_remove(&fileenum->entry);
+        heap_free(fileenum);
+    }
+
+    for (i = 0; i < collection->family_count; i++) {
+        fontfamily_add_bold_simulated_face(collection->family_data[i]);
+        fontfamily_add_oblique_simulated_face(collection->family_data[i]);
+    }
 
     return hr;
 }
@@ -3501,9 +3854,10 @@ static ULONG WINAPI glyphrunanalysis_Release(IDWriteGlyphRunAnalysis *iface)
 
 static void glyphrunanalysis_get_texturebounds(struct dwrite_glyphrunanalysis *analysis, RECT *bounds)
 {
+    struct dwrite_glyphbitmap glyph_bitmap;
     IDWriteFontFace2 *fontface2;
-    BOOL nohint, is_rtl;
     FLOAT origin_x;
+    BOOL is_rtl;
     HRESULT hr;
     UINT32 i;
 
@@ -3519,29 +3873,35 @@ static void glyphrunanalysis_get_texturebounds(struct dwrite_glyphrunanalysis *a
     if (FAILED(hr))
         WARN("failed to get IDWriteFontFace2, 0x%08x\n", hr);
 
-    nohint = analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL || analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC;
-
     /* Start with empty bounds at (0,0) origin, returned bounds are not translated back to (0,0), e.g. for
        RTL run negative left bound is returned, same goes for vertical direction - top bound will be negative
        for any non-zero glyph ascender */
     origin_x = 0.0;
     is_rtl = analysis->run.bidiLevel & 1;
+
+    memset(&glyph_bitmap, 0, sizeof(glyph_bitmap));
+    glyph_bitmap.fontface = fontface2;
+    glyph_bitmap.emsize = analysis->run.fontEmSize * analysis->ppdip;
+    glyph_bitmap.nohint = analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL ||
+        analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC;
+
     for (i = 0; i < analysis->run.glyphCount; i++) {
         const DWRITE_GLYPH_OFFSET *offset = analysis->offsets ? &analysis->offsets[i] : NULL;
         FLOAT advance = analysis->advances[i];
-        RECT bbox;
+        RECT *bbox = &glyph_bitmap.bbox;
 
-        freetype_get_glyph_bbox(fontface2, analysis->run.fontEmSize * analysis->ppdip, analysis->run.glyphIndices[i], nohint, &bbox);
+        glyph_bitmap.index = analysis->run.glyphIndices[i];
+        freetype_get_glyph_bbox(&glyph_bitmap);
 
         if (is_rtl)
-            OffsetRect(&bbox, origin_x - advance, 0);
+            OffsetRect(bbox, origin_x - advance, 0);
         else
-            OffsetRect(&bbox, origin_x, 0);
+            OffsetRect(bbox, origin_x, 0);
 
         if (offset)
-            OffsetRect(&bbox, is_rtl ? -offset->advanceOffset : offset->advanceOffset, is_rtl ? -offset->ascenderOffset : offset->ascenderOffset);
+            OffsetRect(bbox, is_rtl ? -offset->advanceOffset : offset->advanceOffset, is_rtl ? -offset->ascenderOffset : offset->ascenderOffset);
 
-        UnionRect(&analysis->bounds, &analysis->bounds, &bbox);
+        UnionRect(&analysis->bounds, &analysis->bounds, bbox);
         origin_x += is_rtl ? -advance : advance;
     }
 
@@ -3593,14 +3953,19 @@ static inline BYTE *get_pixel_ptr(BYTE *ptr, DWRITE_TEXTURE_TYPE type, const REC
 static void glyphrunanalysis_render(struct dwrite_glyphrunanalysis *analysis, DWRITE_TEXTURE_TYPE type)
 {
     static const BYTE masks[8] = {0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01};
+    struct dwrite_glyphbitmap glyph_bitmap;
     IDWriteFontFace2 *fontface2;
-    BOOL is_rtl, nohint;
     FLOAT origin_x;
     UINT32 i, size;
+    BOOL is_rtl;
+    HRESULT hr;
+    RECT *bbox;
 
-    IDWriteFontFace_QueryInterface(analysis->run.fontFace, &IID_IDWriteFontFace2, (void**)&fontface2);
-
-    nohint = analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL || analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC;
+    hr = IDWriteFontFace_QueryInterface(analysis->run.fontFace, &IID_IDWriteFontFace2, (void**)&fontface2);
+    if (FAILED(hr)) {
+        WARN("failed to get IDWriteFontFace2, 0x%08x\n", hr);
+        return;
+    }
 
     size = (analysis->bounds.right - analysis->bounds.left)*(analysis->bounds.bottom - analysis->bounds.top);
     if (type == DWRITE_TEXTURE_CLEARTYPE_3x1)
@@ -3609,59 +3974,84 @@ static void glyphrunanalysis_render(struct dwrite_glyphrunanalysis *analysis, DW
 
     origin_x = 0.0;
     is_rtl = analysis->run.bidiLevel & 1;
+
+    memset(&glyph_bitmap, 0, sizeof(glyph_bitmap));
+    glyph_bitmap.fontface = fontface2;
+    glyph_bitmap.emsize = analysis->run.fontEmSize * analysis->ppdip;
+    glyph_bitmap.nohint = analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL ||
+        analysis->rendering_mode == DWRITE_RENDERING_MODE_NATURAL_SYMMETRIC;
+    glyph_bitmap.type = type;
+    bbox = &glyph_bitmap.bbox;
+
     for (i = 0; i < analysis->run.glyphCount; i++) {
         const DWRITE_GLYPH_OFFSET *offset = analysis->offsets ? &analysis->offsets[i] : NULL;
         FLOAT advance = analysis->advances[i];
-        int pitch, x, y, width, height;
-        BYTE *glyph, *src, *dst;
-        RECT bbox;
+        int x, y, width, height;
+        BYTE *src, *dst;
+        BOOL is_1bpp;
 
-        freetype_get_glyph_bbox(fontface2, analysis->run.fontEmSize * analysis->ppdip, analysis->run.glyphIndices[i], nohint, &bbox);
+        glyph_bitmap.index = analysis->run.glyphIndices[i];
+        freetype_get_glyph_bbox(&glyph_bitmap);
 
-        if (IsRectEmpty(&bbox)) {
+        if (IsRectEmpty(bbox)) {
             origin_x += is_rtl ? -advance : advance;
             continue;
         }
 
-        width = bbox.right - bbox.left;
-        height = bbox.bottom - bbox.top;
-        pitch = ((width + 31) >> 5) << 2;
+        width = bbox->right - bbox->left;
+        height = bbox->bottom - bbox->top;
 
-        src = glyph = heap_alloc_zero((bbox.bottom - bbox.top) * pitch);
-        freetype_get_glyph_bitmap(fontface2, analysis->run.fontEmSize * analysis->ppdip, analysis->run.glyphIndices[i], &bbox, glyph);
+        if (type == DWRITE_TEXTURE_CLEARTYPE_3x1)
+            glyph_bitmap.pitch = (width + 3) / 4 * 4;
+        else
+            glyph_bitmap.pitch = ((width + 31) >> 5) << 2;
+
+        glyph_bitmap.buf = src = heap_alloc_zero(height * glyph_bitmap.pitch);
+        is_1bpp = freetype_get_glyph_bitmap(&glyph_bitmap);
 
         if (is_rtl)
-            OffsetRect(&bbox, origin_x - advance, 0);
+            OffsetRect(bbox, origin_x - advance, 0);
         else
-            OffsetRect(&bbox, origin_x, 0);
+            OffsetRect(bbox, origin_x, 0);
 
         if (offset)
-            OffsetRect(&bbox, is_rtl ? -offset->advanceOffset : offset->advanceOffset, is_rtl ? -offset->ascenderOffset : offset->ascenderOffset);
+            OffsetRect(bbox, is_rtl ? -offset->advanceOffset : offset->advanceOffset, is_rtl ? -offset->ascenderOffset : offset->ascenderOffset);
 
-        OffsetRect(&bbox, analysis->originX, analysis->originY);
+        OffsetRect(bbox, analysis->originX, analysis->originY);
 
         /* blit to analysis bitmap */
-        dst = get_pixel_ptr(analysis->bitmap, type, &bbox, &analysis->bounds);
+        dst = get_pixel_ptr(analysis->bitmap, type, bbox, &analysis->bounds);
 
-        /* convert 1bpp to 8bpp/24bpp */
-        if (type == DWRITE_TEXTURE_CLEARTYPE_3x1) {
-            for (y = 0; y < height; y++) {
-                for (x = 0; x < width; x++)
-                    dst[3*x] = dst[3*x+1] = dst[3*x+2] = (src[x / 8] & masks[x % 8]) ? DWRITE_ALPHA_MAX : 0;
-                src += get_dib_stride(width, 1);
-                dst += (analysis->bounds.right - analysis->bounds.left) * 3;
+        if (is_1bpp) {
+            /* convert 1bpp to 8bpp/24bpp */
+            if (type == DWRITE_TEXTURE_CLEARTYPE_3x1) {
+                for (y = 0; y < height; y++) {
+                    for (x = 0; x < width; x++)
+                        dst[3*x] = dst[3*x+1] = dst[3*x+2] = (src[x / 8] & masks[x % 8]) ? DWRITE_ALPHA_MAX : 0;
+                    src += glyph_bitmap.pitch;
+                    dst += (analysis->bounds.right - analysis->bounds.left) * 3;
+                }
+            }
+            else {
+                for (y = 0; y < height; y++) {
+                    for (x = 0; x < width; x++)
+                        dst[x] = (src[x / 8] & masks[x % 8]) ? DWRITE_ALPHA_MAX : 0;
+                    src += get_dib_stride(width, 1);
+                    dst += analysis->bounds.right - analysis->bounds.left;
+                }
             }
         }
         else {
+            /* at this point it's DWRITE_TEXTURE_CLEARTYPE_3x1 with 8bpp src bitmap */
             for (y = 0; y < height; y++) {
                 for (x = 0; x < width; x++)
-                    dst[x] = (src[x / 8] & masks[x % 8]) ? DWRITE_ALPHA_MAX : 0;
-                src += get_dib_stride(width, 1);
-                dst += analysis->bounds.right - analysis->bounds.left;
+                    dst[3*x] = dst[3*x+1] = dst[3*x+2] = src[x];
+                src += glyph_bitmap.pitch;
+                dst += (analysis->bounds.right - analysis->bounds.left) * 3;
             }
         }
 
-        heap_free(glyph);
+        heap_free(glyph_bitmap.buf);
 
         origin_x += is_rtl ? -advance : advance;
     }

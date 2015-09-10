@@ -1085,6 +1085,18 @@ static void test_swapchain(void)
     ok(d3dpp.BackBufferCount == 1, "Got unexpected back buffer count %u.\n", d3dpp.BackBufferCount);
     IDirect3DSwapChain9_Release(swapchain0);
 
+    hr = IDirect3DSwapChain9_GetBackBuffer(swapchain0, 0, D3DBACKBUFFER_TYPE_MONO, NULL);
+    ok(hr == D3DERR_INVALIDCALL, "Got unexpected hr %#x.\n", hr);
+    /* IDirect3DDevice9::GetBackBuffer crashes if a NULL output pointer is passed. */
+    backbuffer = (void *)0xdeadbeef;
+    hr = IDirect3DDevice9_GetBackBuffer(device, 1, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
+    ok(hr == D3DERR_INVALIDCALL, "Got unexpected hr %#x.\n", hr);
+    ok(!backbuffer, "The back buffer pointer is %p, expected NULL.\n", backbuffer);
+    backbuffer = (void *)0xdeadbeef;
+    hr = IDirect3DDevice9_GetBackBuffer(device, 0, 1, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
+    ok(hr == D3DERR_INVALIDCALL, "Got unexpected hr %#x.\n", hr);
+    ok(!backbuffer, "The back buffer pointer is %p, expected NULL.\n", backbuffer);
+
     /* Check if there is a back buffer */
     hr = IDirect3DSwapChain9_GetBackBuffer(swapchain0, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
     ok(SUCCEEDED(hr), "Failed to get the back buffer (%08x)\n", hr);
@@ -7806,7 +7818,13 @@ static void test_surface_blocks(void)
                     break;
 
                 default:
+                    hr = E_FAIL;
                     break;
+            }
+            if (FAILED(hr))
+            {
+                skip("Failed to create surface, skipping tests.\n");
+                continue;
             }
 
             if (formats[i].block_width > 1)
@@ -8672,6 +8690,11 @@ static void test_volume_blocks(void)
         hr = IDirect3DDevice9_CreateVolumeTexture(device, 24, 8, 8, 1, 0,
                 formats[i].fmt, D3DPOOL_SCRATCH, &texture, NULL);
         ok(SUCCEEDED(hr), "Failed to create volume texture, hr %#x.\n", hr);
+        if (FAILED(hr))
+        {
+            skip("Failed to create texture, skipping tests.\n");
+            continue;
+        }
 
         /* Test lockrect offset */
         for (j = 0; j < sizeof(offset_tests) / sizeof(*offset_tests); j++)
@@ -9163,37 +9186,37 @@ static void test_pixel_format(void)
     }
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     hr = IDirect3DDevice9_SetFVF(device, D3DFVF_XYZ);
     ok(SUCCEEDED(hr), "Failed to set FVF, hr %#x.\n", hr);
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     hr = IDirect3DDevice9_BeginScene(device);
     ok(SUCCEEDED(hr), "BeginScene failed %#x\n", hr);
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     hr = IDirect3DDevice9_DrawPrimitiveUP(device, D3DPT_POINTLIST, 1, point, 3 * sizeof(float));
     ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     hr = IDirect3DDevice9_EndScene(device);
     ok(SUCCEEDED(hr), "EndScene failed %#x\n", hr);
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     hr = IDirect3DDevice9_Present(device, NULL, NULL, NULL, NULL);
     ok(SUCCEEDED(hr), "Present failed %#x\n", hr);
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     if (hdc2)
     {
@@ -9201,10 +9224,10 @@ static void test_pixel_format(void)
         ok(SUCCEEDED(hr), "Present failed %#x\n", hr);
 
         test_format = GetPixelFormat(hdc);
-        ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+        todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
         test_format = GetPixelFormat(hdc2);
-        ok(test_format == format, "second window has pixel format %d, expected %d\n", test_format, format);
+        todo_wine ok(test_format == format, "second window has pixel format %d, expected %d\n", test_format, format);
     }
 
 cleanup:
@@ -10170,6 +10193,164 @@ static void test_resource_priority(void)
     DestroyWindow(window);
 }
 
+static void test_swapchain_parameters(void)
+{
+    IDirect3DDevice9 *device;
+    IDirect3D9 *d3d;
+    HWND window;
+    HRESULT hr;
+    unsigned int i;
+    D3DPRESENT_PARAMETERS present_parameters, present_parameters_windowed = {0}, present_parameters2;
+    IDirect3DSwapChain9 *swapchain;
+    static const struct
+    {
+        BOOL windowed;
+        UINT backbuffer_count;
+        D3DSWAPEFFECT swap_effect;
+        HRESULT hr;
+    }
+    tests[] =
+    {
+        /* Swap effect 0 is not allowed. */
+        {TRUE,  1, 0,                        D3DERR_INVALIDCALL},
+        {FALSE, 1, 0,                        D3DERR_INVALIDCALL},
+
+        /* All (non-ex) swap effects are allowed in
+         * windowed and fullscreen mode. */
+        {TRUE,  1, D3DSWAPEFFECT_DISCARD,    D3D_OK},
+        {TRUE,  1, D3DSWAPEFFECT_FLIP,       D3D_OK},
+        {FALSE, 1, D3DSWAPEFFECT_DISCARD,    D3D_OK},
+        {FALSE, 1, D3DSWAPEFFECT_FLIP,       D3D_OK},
+        {FALSE, 1, D3DSWAPEFFECT_COPY,       D3D_OK},
+
+        /* Only one backbuffer in copy mode. */
+        {TRUE,  0, D3DSWAPEFFECT_COPY,       D3D_OK},
+        {TRUE,  1, D3DSWAPEFFECT_COPY,       D3D_OK},
+        {TRUE,  2, D3DSWAPEFFECT_COPY,       D3DERR_INVALIDCALL},
+        {FALSE, 2, D3DSWAPEFFECT_COPY,       D3DERR_INVALIDCALL},
+
+        /* Ok with the others, in fullscreen and windowed mode. */
+        {TRUE,  2, D3DSWAPEFFECT_DISCARD,    D3D_OK},
+        {TRUE,  2, D3DSWAPEFFECT_FLIP,       D3D_OK},
+        {FALSE, 2, D3DSWAPEFFECT_DISCARD,    D3D_OK},
+        {FALSE, 2, D3DSWAPEFFECT_FLIP,       D3D_OK},
+
+        /* D3D9Ex swap effects. */
+        {TRUE,  1, D3DSWAPEFFECT_OVERLAY,    D3DERR_INVALIDCALL},
+        {TRUE,  1, D3DSWAPEFFECT_FLIPEX,     D3DERR_INVALIDCALL},
+        {TRUE,  1, D3DSWAPEFFECT_FLIPEX + 1, D3DERR_INVALIDCALL},
+        {FALSE, 1, D3DSWAPEFFECT_OVERLAY,    D3DERR_INVALIDCALL},
+        {FALSE, 1, D3DSWAPEFFECT_FLIPEX,     D3DERR_INVALIDCALL},
+        {FALSE, 1, D3DSWAPEFFECT_FLIPEX + 1, D3DERR_INVALIDCALL},
+
+        /* 3 is the highest allowed backbuffer count. */
+        {TRUE,  3, D3DSWAPEFFECT_DISCARD,    D3D_OK},
+        {TRUE,  4, D3DSWAPEFFECT_DISCARD,    D3DERR_INVALIDCALL},
+        {TRUE,  4, D3DSWAPEFFECT_FLIP,       D3DERR_INVALIDCALL},
+        {FALSE, 4, D3DSWAPEFFECT_DISCARD,    D3DERR_INVALIDCALL},
+        {FALSE, 4, D3DSWAPEFFECT_FLIP,       D3DERR_INVALIDCALL},
+    };
+
+    window = CreateWindowA("static", "d3d9_test", WS_OVERLAPPEDWINDOW,
+            0, 0, 640, 480, NULL, NULL, NULL, NULL);
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+    if (!(device = create_device(d3d, window, NULL)))
+    {
+        skip("Failed to create a D3D device, skipping tests.\n");
+        IDirect3D9_Release(d3d);
+        DestroyWindow(window);
+        return;
+    }
+    IDirect3DDevice9_Release(device);
+
+    present_parameters_windowed.BackBufferWidth = registry_mode.dmPelsWidth;
+    present_parameters_windowed.BackBufferHeight = registry_mode.dmPelsHeight;
+    present_parameters_windowed.hDeviceWindow = window;
+    present_parameters_windowed.BackBufferFormat = D3DFMT_X8R8G8B8;
+    present_parameters_windowed.SwapEffect = D3DSWAPEFFECT_COPY;
+    present_parameters_windowed.Windowed = TRUE;
+    present_parameters_windowed.BackBufferCount = 1;
+
+    for (i = 0; i < sizeof(tests) / sizeof(*tests); ++i)
+    {
+        memset(&present_parameters, 0, sizeof(present_parameters));
+        present_parameters.BackBufferWidth = registry_mode.dmPelsWidth;
+        present_parameters.BackBufferHeight = registry_mode.dmPelsHeight;
+        present_parameters.hDeviceWindow = window;
+        present_parameters.BackBufferFormat = D3DFMT_X8R8G8B8;
+
+        present_parameters.SwapEffect = tests[i].swap_effect;
+        present_parameters.Windowed = tests[i].windowed;
+        present_parameters.BackBufferCount = tests[i].backbuffer_count;
+
+        hr = IDirect3D9_CreateDevice(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, window,
+                D3DCREATE_SOFTWARE_VERTEXPROCESSING, &present_parameters, &device);
+        ok(hr == tests[i].hr, "Expected hr %x, got %x, test %u.\n", tests[i].hr, hr, i);
+        if (SUCCEEDED(hr))
+        {
+            UINT bb_count = tests[i].backbuffer_count ? tests[i].backbuffer_count : 1;
+
+            hr = IDirect3DDevice9_GetSwapChain(device, 0, &swapchain);
+            ok(SUCCEEDED(hr), "Failed to get swapchain, hr %#x, test %u.\n", hr, i);
+
+            hr = IDirect3DSwapChain9_GetPresentParameters(swapchain, &present_parameters2);
+            ok(SUCCEEDED(hr), "Failed to get present parameters, hr %#x, test %u.\n", hr, i);
+            ok(present_parameters2.SwapEffect == tests[i].swap_effect, "Swap effect changed from %u to %u, test %u.\n",
+                    tests[i].swap_effect, present_parameters2.SwapEffect, i);
+            ok(present_parameters2.BackBufferCount == bb_count, "Backbuffer count changed from %u to %u, test %u.\n",
+                    bb_count, present_parameters2.BackBufferCount, i);
+            ok(present_parameters2.Windowed == tests[i].windowed, "Windowed changed from %u to %u, test %u.\n",
+                    tests[i].windowed, present_parameters2.Windowed, i);
+
+            IDirect3DSwapChain9_Release(swapchain);
+            IDirect3DDevice9_Release(device);
+        }
+
+        hr = IDirect3D9_CreateDevice(d3d, D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, window,
+                D3DCREATE_SOFTWARE_VERTEXPROCESSING, &present_parameters_windowed, &device);
+        ok(SUCCEEDED(hr), "Failed to create device, hr %#x, test %u.\n", hr, i);
+
+        memset(&present_parameters, 0, sizeof(present_parameters));
+        present_parameters.BackBufferWidth = registry_mode.dmPelsWidth;
+        present_parameters.BackBufferHeight = registry_mode.dmPelsHeight;
+        present_parameters.hDeviceWindow = window;
+        present_parameters.BackBufferFormat = D3DFMT_X8R8G8B8;
+
+        present_parameters.SwapEffect = tests[i].swap_effect;
+        present_parameters.Windowed = tests[i].windowed;
+        present_parameters.BackBufferCount = tests[i].backbuffer_count;
+
+        hr = IDirect3DDevice9_Reset(device, &present_parameters);
+        ok(hr == tests[i].hr, "Expected hr %x, got %x, test %u.\n", tests[i].hr, hr, i);
+
+        if (FAILED(hr))
+        {
+            hr = IDirect3DDevice9_Reset(device, &present_parameters_windowed);
+            ok(SUCCEEDED(hr), "Failed to reset device, hr %#x, test %u.\n", hr, i);
+        }
+        IDirect3DDevice9_Release(device);
+    }
+
+    IDirect3D9_Release(d3d);
+    DestroyWindow(window);
+}
+
+static void test_desktop_window(void)
+{
+    IDirect3DDevice9 *device = NULL;
+    IDirect3D9 *d3d;
+
+    d3d = Direct3DCreate9(D3D_SDK_VERSION);
+    ok(!!d3d, "Failed to create a D3D object.\n");
+
+    device = create_device(d3d, GetDesktopWindow(), NULL);
+    ok(!!device, "Failed to created device on desktop window.\n");
+
+    if (device) IDirect3DDevice9_Release(device);
+    IDirect3D9_Release(d3d);
+}
+
 START_TEST(device)
 {
     WNDCLASSA wc = {0};
@@ -10280,6 +10461,8 @@ START_TEST(device)
     test_writeonly_resource();
     test_lost_device();
     test_resource_priority();
+    test_swapchain_parameters();
+    test_desktop_window();
 
     UnregisterClassA("d3d9_test_wc", GetModuleHandleA(NULL));
 }

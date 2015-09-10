@@ -110,6 +110,32 @@ static const struct gdi_dc_funcs *get_display_driver(void)
 
 
 /**********************************************************************
+ *	     is_display_device
+ */
+static BOOL is_display_device( LPCWSTR name )
+{
+    static const WCHAR display_deviceW[] = {'\\','\\','.','\\','D','I','S','P','L','A','Y'};
+    const WCHAR *p = name;
+
+    if (strncmpiW( name, display_deviceW, sizeof(display_deviceW) / sizeof(WCHAR) ))
+        return FALSE;
+
+    p += sizeof(display_deviceW) / sizeof(WCHAR);
+
+    if (!isdigitW( *p++ ))
+        return FALSE;
+
+    for (; *p; p++)
+    {
+        if (!isdigitW( *p ))
+            return FALSE;
+    }
+
+    return TRUE;
+}
+
+
+/**********************************************************************
  *	     DRIVER_load_driver
  */
 const struct gdi_dc_funcs *DRIVER_load_driver( LPCWSTR name )
@@ -117,10 +143,9 @@ const struct gdi_dc_funcs *DRIVER_load_driver( LPCWSTR name )
     HMODULE module;
     struct graphics_driver *driver, *new_driver;
     static const WCHAR displayW[] = { 'd','i','s','p','l','a','y',0 };
-    static const WCHAR display1W[] = {'\\','\\','.','\\','D','I','S','P','L','A','Y','1',0};
 
     /* display driver is a special case */
-    if (!strcmpiW( name, displayW ) || !strcmpiW( name, display1W )) return get_display_driver();
+    if (!strcmpiW( name, displayW ) || is_display_device( name )) return get_display_driver();
 
     if ((module = GetModuleHandleW( name )))
     {
@@ -276,11 +301,6 @@ static BOOL nulldrv_GdiComment( PHYSDEV dev, UINT size, const BYTE *data )
     return FALSE;
 }
 
-static BOOL nulldrv_GdiRealizationInfo( PHYSDEV dev, void *info )
-{
-    return FALSE;
-}
-
 static UINT nulldrv_GetBoundsRect( PHYSDEV dev, RECT *rect, UINT flags )
 {
     return DCB_RESET;
@@ -330,6 +350,11 @@ static BOOL nulldrv_GetDeviceGammaRamp( PHYSDEV dev, void *ramp )
 }
 
 static DWORD nulldrv_GetFontData( PHYSDEV dev, DWORD table, DWORD offset, LPVOID buffer, DWORD length )
+{
+    return FALSE;
+}
+
+static BOOL nulldrv_GetFontRealizationInfo( PHYSDEV dev, void *info )
 {
     return FALSE;
 }
@@ -668,7 +693,6 @@ const struct gdi_dc_funcs null_driver =
     nulldrv_FontIsLinked,               /* pFontIsLinked */
     nulldrv_FrameRgn,                   /* pFrameRgn */
     nulldrv_GdiComment,                 /* pGdiComment */
-    nulldrv_GdiRealizationInfo,         /* pGdiRealizationInfo */
     nulldrv_GetBoundsRect,              /* pGetBoundsRect */
     nulldrv_GetCharABCWidths,           /* pGetCharABCWidths */
     nulldrv_GetCharABCWidthsI,          /* pGetCharABCWidthsI */
@@ -676,6 +700,7 @@ const struct gdi_dc_funcs null_driver =
     nulldrv_GetDeviceCaps,              /* pGetDeviceCaps */
     nulldrv_GetDeviceGammaRamp,         /* pGetDeviceGammaRamp */
     nulldrv_GetFontData,                /* pGetFontData */
+    nulldrv_GetFontRealizationInfo,     /* pGetFontRealizationInfo */
     nulldrv_GetFontUnicodeRanges,       /* pGetFontUnicodeRanges */
     nulldrv_GetGlyphIndices,            /* pGetGlyphIndices */
     nulldrv_GetGlyphOutline,            /* pGetGlyphOutline */
@@ -775,13 +800,12 @@ BOOL DRIVER_GetDriverName( LPCWSTR device, LPWSTR driver, DWORD size )
 {
     static const WCHAR displayW[] = { 'd','i','s','p','l','a','y',0 };
     static const WCHAR devicesW[] = { 'd','e','v','i','c','e','s',0 };
-    static const WCHAR display1W[] = {'\\','\\','.','\\','D','I','S','P','L','A','Y','1',0};
     static const WCHAR empty_strW[] = { 0 };
     WCHAR *p;
 
     /* display is a special case */
     if (!strcmpiW( device, displayW ) ||
-        !strcmpiW( device, display1W ))
+        is_display_device( device ))
     {
         lstrcpynW( driver, displayW, size );
         return TRUE;

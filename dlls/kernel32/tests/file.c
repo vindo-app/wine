@@ -361,17 +361,13 @@ static void test__lcreat( void )
     status = NtCreateFile( &file, DELETE, &attr, &io, NULL, 0,
                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                            FILE_OPEN, FILE_DELETE_ON_CLOSE | FILE_NON_DIRECTORY_FILE, NULL, 0 );
-    todo_wine
     ok( status == STATUS_CANNOT_DELETE, "expected STATUS_CANNOT_DELETE, got %08x\n", status );
     if (!status) CloseHandle( file );
 
     RtlFreeUnicodeString( &filenameW );
 
-    todo_wine
     ok( GetFileAttributesA( filename ) != INVALID_FILE_ATTRIBUTES, "file was deleted\n" );
-    todo_wine
     ok( SetFileAttributesA(filename, FILE_ATTRIBUTE_NORMAL ) != 0, "couldn't change attributes on file\n" );
-    todo_wine
     ok( DeleteFileA( filename ) != 0, "now it should be possible to delete the file\n" );
 
     filehandle = _lcreat( filename, 2 );
@@ -1137,23 +1133,17 @@ static void test_CopyFileEx(void)
     ok(hfile != INVALID_HANDLE_VALUE, "failed to open destination file, error %d\n", GetLastError());
     SetLastError(0xdeadbeef);
     retok = CopyFileExA(source, dest, copy_progress_cb, hfile, NULL, 0);
-    todo_wine
     ok(!retok, "CopyFileExA unexpectedly succeeded\n");
-    todo_wine
     ok(GetLastError() == ERROR_REQUEST_ABORTED, "expected ERROR_REQUEST_ABORTED, got %d\n", GetLastError());
     ok(GetFileAttributesA(dest) != INVALID_FILE_ATTRIBUTES, "file was deleted\n");
 
     hfile = CreateFileA(dest, GENERIC_READ | GENERIC_WRITE, FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                         NULL, OPEN_EXISTING, 0, 0);
-    todo_wine
     ok(hfile != INVALID_HANDLE_VALUE, "failed to open destination file, error %d\n", GetLastError());
     SetLastError(0xdeadbeef);
     retok = CopyFileExA(source, dest, copy_progress_cb, hfile, NULL, 0);
-    todo_wine
     ok(!retok, "CopyFileExA unexpectedly succeeded\n");
-    todo_wine
     ok(GetLastError() == ERROR_REQUEST_ABORTED, "expected ERROR_REQUEST_ABORTED, got %d\n", GetLastError());
-    todo_wine
     ok(GetFileAttributesA(dest) == INVALID_FILE_ATTRIBUTES, "file was not deleted\n");
 
     ret = DeleteFileA(source);
@@ -1784,14 +1774,12 @@ static void test_DeleteFileA( void )
 
     SetLastError(0xdeadbeef);
     ret = DeleteFileA(temp_file);
-todo_wine
     ok(ret, "DeleteFile error %d\n", GetLastError());
 
     SetLastError(0xdeadbeef);
     ret = CloseHandle(hfile);
     ok(ret, "CloseHandle error %d\n", GetLastError());
     ret = DeleteFileA(temp_file);
-todo_wine
     ok(!ret, "DeleteFile should fail\n");
 
     SetLastError(0xdeadbeef);
@@ -4650,6 +4638,27 @@ todo_wine
     CloseHandle(file);
 }
 
+static void test_GetFileAttributesExW(void)
+{
+    static const WCHAR path1[] = {'\\','\\','?','\\',0};
+    static const WCHAR path2[] = {'\\','?','?','\\',0};
+    static const WCHAR path3[] = {'\\','D','o','s','D','e','v','i','c','e','s','\\',0};
+    WIN32_FILE_ATTRIBUTE_DATA info;
+    BOOL ret;
+
+    ret = GetFileAttributesExW(path1, GetFileExInfoStandard, &info);
+    ok(!ret, "GetFileAttributesExW succeeded\n");
+    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %d\n", GetLastError());
+
+    ret = GetFileAttributesExW(path2, GetFileExInfoStandard, &info);
+    ok(!ret, "GetFileAttributesExW succeeded\n");
+    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %d\n", GetLastError());
+
+    ret = GetFileAttributesExW(path3, GetFileExInfoStandard, &info);
+    ok(!ret, "GetFileAttributesExW succeeded\n");
+    ok(GetLastError() == ERROR_FILE_NOT_FOUND, "Expected error ERROR_FILE_NOT_FOUND, got %d\n", GetLastError());
+}
+
 START_TEST(file)
 {
     InitFunctionPointers();
@@ -4706,4 +4715,5 @@ START_TEST(file)
     test_GetFinalPathNameByHandleA();
     test_GetFinalPathNameByHandleW();
     test_SetFileInformationByHandle();
+    test_GetFileAttributesExW();
 }

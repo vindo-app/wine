@@ -138,7 +138,7 @@ msgstr "&Asenna"
 #: comctl32.rc:71 comdlg32.rc:170 comdlg32.rc:192 comdlg32.rc:210
 #: comdlg32.rc:232 comdlg32.rc:262 comdlg32.rc:305 comdlg32.rc:327
 #: comdlg32.rc:347 comdlg32.rc:359 comdlg32.rc:398 comdlg32.rc:452
-#: comdlg32.rc:477 comdlg32.rc:495 credui.rc:53 cryptui.rc:264 cryptui.rc:276
+#: comdlg32.rc:477 comdlg32.rc:500 credui.rc:53 cryptui.rc:264 cryptui.rc:276
 #: cryptui.rc:366 dinput.rc:47 ieframe.rc:97 inetcpl.rc:81 localui.rc:45
 #: localui.rc:58 mpr.rc:50 msacm32.rc:54 mshtml.rc:48 mshtml.rc:58
 #: msvfw32.rc:37 oledlg.rc:61 oledlg.rc:93 serialui.rc:42 setupapi.rc:42
@@ -344,7 +344,7 @@ msgstr "&Nollaa"
 
 #: comctl32.rc:86 comdlg32.rc:171 comdlg32.rc:193 comdlg32.rc:264
 #: comdlg32.rc:328 comdlg32.rc:348 comdlg32.rc:360 comdlg32.rc:478
-#: comdlg32.rc:496 ieframe.rc:58 msacm32.rc:52 oledlg.rc:94 shell32.rc:128
+#: comdlg32.rc:501 ieframe.rc:58 msacm32.rc:52 oledlg.rc:94 shell32.rc:128
 #: clock.rc:44 notepad.rc:60 notepad.rc:119 oleview.rc:72 progman.rc:55
 #: progman.rc:108 progman.rc:126 progman.rc:144 progman.rc:160 progman.rc:184
 #: progman.rc:202 progman.rc:219 regedit.rc:79 taskmgr.rc:87 winefile.rc:82
@@ -9904,14 +9904,12 @@ msgstr ""
 "/i              Käynnistä ohjelma tuoreilla ympäristömuuttujilla.\n"
 "/min            Käynnistä ohjelma pienennettynä.\n"
 "/max            Käynnistä ohjelma suurennettuna.\n"
-"/low            Käynnistä ohjelma matalassa prioriteettiluokassa.\n"
-"/normal         Käynnistä ohjelma normaalissa prioriteettiluokassa.\n"
-"/high           Käynnistä ohjelma korkeassa prioriteettiluokassa.\n"
-"/realtime       Käynnistä ohjelma reaaliaikaisessa prioriteettiluokassa.\n"
-"/abovenormal    Käynnistä ohjelma normaalia korkeammassa\n"
-"                prioriteettiluokassa.\n"
-"/belownormal    Käynnistä ohjelma normaalia matalammassa\n"
-"                prioriteettiluokassa.\n"
+"/low            Käynnistä ohjelma prioriteetilla 'matala'.\n"
+"/normal         Käynnistä ohjelma prioriteetilla 'normaali'.\n"
+"/high           Käynnistä ohjelma prioriteetilla 'korkea'.\n"
+"/realtime       Käynnistä ohjelma prioriteetilla 'reaaliaikainen'.\n"
+"/abovenormal    Käynnistä ohjelma prioriteetilla 'normaalia korkeampi'.\n"
+"/belownormal    Käynnistä ohjelma prioriteetilla 'normaalia matalampi'.\n"
 "/node n         Käynnistä ohjelma määrätyllä NUMA-solmulla.\n"
 "/affinity peite Käynnistä ohjelma määrätyllä affiniteettipeitteellä.\n"
 "/wait           Odota, että ohjelma sulkeutuu, ja palauta sen paluuarvo.\n"
@@ -12829,18 +12827,16 @@ msgstr ""
 
 #: uninstaller.rc:31
 msgid "uninstaller: The application with GUID '%1' was not found\n"
-msgstr ""
+msgstr "uninstaller: Ei löydy ohjelmaa, jonka GUID olisi '%1'\n"
 
 #: uninstaller.rc:32
 msgid ""
 "uninstaller: The option '--remove' must be followed by an application GUID\n"
-msgstr ""
+msgstr "uninstaller: Valitsinta '--remove' täytyy seurata ohjelman GUID\n"
 
 #: uninstaller.rc:33
-#, fuzzy
-#| msgid "Error: Invalid option '%c'.\n"
 msgid "uninstaller: Invalid option [%1]\n"
-msgstr "Virhe: Viallinen vaihtoehto '%c'.\n"
+msgstr "uninstaller: Virheellinen valitsin [%1]\n"
 
 #: uninstaller.rc:35
 msgid ""
@@ -12849,6 +12845,10 @@ msgid ""
 "Uninstall applications from the current Wine prefix.\n"
 "\n"
 msgstr ""
+"Winen ohjelmanpoistaja\n"
+"\n"
+"Poista ohjelmia nykyisestä Wine-prefiksistä.\n"
+"\n"
 
 #: uninstaller.rc:43
 msgid ""
@@ -12863,6 +12863,16 @@ msgid ""
 "  [no option]       Launch the graphical version of this program.\n"
 "\n"
 msgstr ""
+"Käyttö:\n"
+"  uninstaller [valitsimet]\n"
+"\n"
+"Valitsimet:\n"
+"  --help\t    Näytä tämä viesti.\n"
+"  --list\t    Listaa tähän Wine-prefiksiin asennetut ohjelmat.\n"
+"  --remove {GUID}   Poista valittu ohjelma.\n"
+"\t\t    Käytä valitsinta '--list' GUIDin löytämiseen.\n"
+"  [ei valitsinta]   Käynnistä tämän ohjelman graafinen versio.\n"
+"\n"
 
 #: view.rc:36
 msgid "&Pan"
@@ -13745,13 +13755,13 @@ msgstr "Ohjelman virhetiedot"
 msgid ""
 "If this problem is not present under Windows and has not been reported yet, "
 "you can save the detailed information to a file using the \"Save As\" "
-"button, then <a href=\"http://wiki.winehq.org/Bugs\">file a bug report</a> "
+"button, then <a href=\"http://bugs.wine-staging.com\">file a bug report</a> "
 "and attach that file to the report."
 msgstr ""
 "Jos tätä ongelmaa ei esiinny Windowsin kanssa eikä sitä ole vielä "
 "raportoitu, voit tallentaa yksityiskohtaisemmat tiedot tiedostoon Tallenna "
-"nimellä -kohdassa ja sitten <a href=\"http://wiki.winehq.org/Bugs\">lähettää "
-"virheraportin</a> ja liittää tiedoston raporttiin."
+"nimellä -kohdassa ja sitten <a href=\"http://bugs.wine-staging.com"
+"\">lähettää virheraportin</a> ja liittää tiedoston raporttiin."
 
 #: winedbg.rc:38
 msgid "Wine program crash"

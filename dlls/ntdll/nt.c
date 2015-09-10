@@ -646,25 +646,6 @@ NTSTATUS WINAPI NtPrivilegeCheck(
 }
 
 /*
- *	Section
- */
-
-/******************************************************************************
- *  NtQuerySection	[NTDLL.@]
- */
-NTSTATUS WINAPI NtQuerySection(
-	IN HANDLE SectionHandle,
-	IN SECTION_INFORMATION_CLASS SectionInformationClass,
-	OUT PVOID SectionInformation,
-	IN ULONG Length,
-	OUT PULONG ResultLength)
-{
-	FIXME("(%p,%d,%p,0x%08x,%p) stub!\n",
-	SectionHandle,SectionInformationClass,SectionInformation,Length,ResultLength);
-	return 0;
-}
-
-/*
  *	ports
  */
 
@@ -2505,6 +2486,18 @@ NTSTATUS WINAPI NtSystemDebugControl(SYSDBG_COMMAND command, PVOID inbuffer, ULO
                                      ULONG outbuflength, PULONG retlength)
 {
     FIXME("(%d, %p, %d, %p, %d, %p), stub\n", command, inbuffer, inbuflength, outbuffer, outbuflength, retlength);
+
+    return STATUS_NOT_IMPLEMENTED;
+}
+
+/******************************************************************************
+ *  NtSetLdtEntries   (NTDLL.@)
+ *  ZwSetLdtEntries   (NTDLL.@)
+ */
+NTSTATUS WINAPI NtSetLdtEntries(ULONG selector1, ULONG entry1_low, ULONG entry1_high,
+                                ULONG selector2, ULONG entry2_low, ULONG entry2_high)
+{
+    FIXME("(%u, %u, %u, %u, %u, %u): stub\n", selector1, entry1_low, entry1_high, selector2, entry2_low, entry2_high);
 
     return STATUS_NOT_IMPLEMENTED;
 }

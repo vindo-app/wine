@@ -94,7 +94,7 @@
 @ stub MFGetNumericNameFromSockaddr
 @ stub MFGetPlaneSize
 @ stub MFGetPlatform
-@ stub MFGetPluginControl
+@ stdcall MFGetPluginControl(ptr)
 @ stub MFGetPrivateWorkqueues
 @ stub MFGetSockaddrFromNumericName
 @ stub MFGetStrideForBitmapInfoHeader
@@ -137,7 +137,7 @@
 @ stub MFTEnum
 @ stub MFTEnumEx
 @ stub MFTGetInfo
-@ stub MFTRegister
+@ stdcall MFTRegister(int128 int128 wstr long long ptr long ptr ptr)
 @ stub MFTRegisterLocal
 @ stub MFTRegisterLocalByCLSID
 @ stub MFTUnregister

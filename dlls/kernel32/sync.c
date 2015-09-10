@@ -1470,7 +1470,7 @@ BOOL WINAPI PeekNamedPipe( HANDLE hPipe, LPVOID lpvBuffer, DWORD cbBuffer,
         ULONG read_size = io.Information - FIELD_OFFSET( FILE_PIPE_PEEK_BUFFER, Data );
         if (lpcbAvail) *lpcbAvail = buffer->ReadDataAvailable;
         if (lpcbRead) *lpcbRead = read_size;
-        if (lpcbMessage) *lpcbMessage = 0;  /* FIXME */
+        if (lpcbMessage) *lpcbMessage = buffer->MessageLength;
         if (lpvBuffer) memcpy( lpvBuffer, buffer->Data, read_size );
     }
     else SetLastError( RtlNtStatusToDosError(status) );
@@ -1616,6 +1616,7 @@ BOOL WINAPI ConnectNamedPipe(HANDLE hPipe, LPOVERLAPPED overlapped)
                              overlapped ? (IO_STATUS_BLOCK *)overlapped : &status_block,
                              FSCTL_PIPE_LISTEN, NULL, 0, NULL, 0);
 
+    if (overlapped && status == STATUS_SUCCESS) status = STATUS_PIPE_CONNECTED;
     if (status == STATUS_SUCCESS) return TRUE;
     SetLastError( RtlNtStatusToDosError(status) );
     return FALSE;

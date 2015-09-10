@@ -891,6 +891,17 @@ static IHTMLSelectElement *_get_select_iface(unsigned line, IUnknown *unk)
     return select;
 }
 
+#define get_option_iface(u) _get_option_iface(__LINE__,u)
+static IHTMLOptionElement *_get_option_iface(unsigned line, IUnknown *unk)
+{
+    IHTMLOptionElement *option;
+    HRESULT hres;
+
+    hres = IUnknown_QueryInterface(unk, &IID_IHTMLOptionElement, (void**)&option);
+    ok_(__FILE__,line) (hres == S_OK, "Could not get IHTMLOptionElement: %08x\n", hres);
+    return option;
+}
+
 #define get_form_iface(u) _get_form_iface(__LINE__,u)
 static IHTMLFormElement *_get_form_iface(unsigned line, IUnknown *unk)
 {
@@ -1690,6 +1701,60 @@ static void _test_option_get_index(unsigned line, IHTMLOptionElement *option, LO
     ok_(__FILE__,line)(hres == S_OK, "get_index failed: %08x\n", hres);
     ok_(__FILE__,line)(val == exval || broken(val == 12345678),  /* Win2k doesn't touch it*/
         "value = %d, expected = %d\n", val, exval);
+}
+
+#define test_option_put_defaultSelected(o,d) _test_option_put_defaultSelected(__LINE__,o,d)
+static void _test_option_put_defaultSelected(unsigned line, IHTMLOptionElement *option, VARIANT_BOOL b)
+{
+    HRESULT hres;
+
+    hres = IHTMLOptionElement_put_defaultSelected(option, b);
+    ok_(__FILE__,line)(hres == S_OK, "put_defaultSelected %08x\n", hres);
+}
+
+#define test_option_defaultSelected(o,e) _test_option_defaultSelected(__LINE__,o,e)
+static void _test_option_defaultSelected(unsigned line, IHTMLOptionElement *option, VARIANT_BOOL ex)
+{
+    HRESULT hres;
+    VARIANT_BOOL b;
+
+    hres = IHTMLOptionElement_get_defaultSelected(option, NULL);
+    ok_(__FILE__,line)(hres == E_POINTER, "Expect E_POINTER, got %08x\n", hres);
+
+    b = 0x100;
+    hres = IHTMLOptionElement_get_defaultSelected(option, &b);
+    ok_(__FILE__,line)(hres == S_OK, "get_defaultSelected failed: %08x\n", hres);
+    ok_(__FILE__,line)(b == ex, "b = %x, expected = %x\n", b, ex);
+}
+
+static void test_option_defaultSelected_property(IHTMLOptionElement *option)
+{
+    test_option_defaultSelected(option, VARIANT_FALSE);
+    test_option_selected(option, VARIANT_FALSE);
+
+    test_option_put_defaultSelected(option, 0x100); /* Invalid value */
+    test_option_defaultSelected(option, VARIANT_FALSE);
+    test_option_selected(option, VARIANT_FALSE);
+
+    test_option_put_defaultSelected(option, VARIANT_TRUE);
+    test_option_defaultSelected(option, VARIANT_TRUE);
+    test_option_selected(option, VARIANT_FALSE);
+
+    test_option_put_defaultSelected(option, 0x100); /* Invalid value */
+    test_option_defaultSelected(option, VARIANT_FALSE);
+    test_option_selected(option, VARIANT_FALSE);
+
+    test_option_put_selected(option, VARIANT_TRUE);
+    test_option_selected(option, VARIANT_TRUE);
+    test_option_defaultSelected(option, VARIANT_FALSE);
+
+    test_option_put_defaultSelected(option, VARIANT_TRUE);
+    test_option_defaultSelected(option, VARIANT_TRUE);
+    test_option_selected(option, VARIANT_TRUE);
+
+    /* Restore defaultSelected */
+    test_option_put_defaultSelected(option, VARIANT_TRUE);
+    test_option_put_selected(option, VARIANT_FALSE);
 }
 
 #define test_textarea_value(t,v) _test_textarea_value(__LINE__,t,v)
@@ -5085,10 +5150,30 @@ static void test_create_option_elem(IHTMLDocument2 *doc)
     test_option_put_text(option, "new text");
     test_option_put_value(option, "new value");
     test_option_get_index(option, 0);
+    test_option_defaultSelected_property(option);
     test_option_put_selected(option, VARIANT_TRUE);
     test_option_put_selected(option, VARIANT_FALSE);
 
     IHTMLOptionElement_Release(option);
+}
+
+static void test_option_form(IUnknown *uoption, IUnknown  *uform)
+{
+    IHTMLOptionElement *option = get_option_iface(uoption);
+    IHTMLFormElement *form;
+    HRESULT hres;
+
+    hres = IHTMLOptionElement_get_form(option, NULL);
+    ok(hres == E_POINTER, "got %08x\n, expected E_POINTER\n", hres);
+
+    hres = IHTMLOptionElement_get_form(option, &form);
+    ok(hres == S_OK, "get_form failed: %08x\n", hres);
+    ok(form != NULL, "form == NULL\n");
+
+    ok(iface_cmp(uform, (IUnknown*)form), "Expected %p, got %p\n", uform, form);
+
+    IHTMLOptionElement_Release(option);
+    IHTMLFormElement_Release(form);
 }
 
 static void test_create_img_elem(IHTMLDocument2 *doc)
@@ -8527,12 +8612,18 @@ static void test_elems2(IHTMLDocument2 *doc)
     }
 
     test_elem_set_innerhtml((IUnknown*)div,
-            "<form id=\"form\" name=\"form_name\"><select id=\"sform\"></select></form>");
+            "<form id=\"form\" name=\"form_name\"><select id=\"sform\"><option id=\"oform\"></option></select></form>");
     elem = get_elem_by_id(doc, "sform", TRUE);
     elem2 = get_elem_by_id(doc, "form", TRUE);
     if(elem && elem2) {
         test_select_form((IUnknown*)elem, (IUnknown*)elem2);
         IHTMLElement_Release(elem);
+
+        elem = get_elem_by_id(doc, "oform", TRUE);
+        if(elem) {
+            test_option_form((IUnknown*)elem, (IUnknown*)elem2);
+            IHTMLElement_Release(elem);
+        }
         IHTMLElement_Release(elem2);
     }
 

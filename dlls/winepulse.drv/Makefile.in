@@ -1,0 +1,8 @@
+MODULE    = winepulse.drv
+IMPORTS   = dxguid uuid winmm user32 advapi32 ole32 version
+DELAYIMPORTS = winealsa.drv
+EXTRALIBS = @PULSELIBS@ $(PTHREAD_LIBS)
+EXTRAINCL = @PULSEINCL@
+
+C_SRCS = \
+	mmdevdrv.c

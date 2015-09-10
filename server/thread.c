@@ -195,6 +195,8 @@ static inline void init_thread_structure( struct thread *thread )
     thread->suspend         = 0;
     thread->desktop_users   = 0;
     thread->token           = NULL;
+    thread->shm_fd          = -1;
+    thread->shm             = NULL;
 
     thread->creation_time = current_time;
     thread->exit_time     = 0;
@@ -296,6 +298,8 @@ static void cleanup_thread( struct thread *thread )
             thread->inflight[i].client = thread->inflight[i].server = -1;
         }
     }
+    release_shared_memory( thread->shm_fd, thread->shm, sizeof(*thread->shm) );
+
     thread->req_data = NULL;
     thread->reply_data = NULL;
     thread->request_fd = NULL;
@@ -304,6 +308,9 @@ static void cleanup_thread( struct thread *thread )
     thread->context = NULL;
     thread->suspend_context = NULL;
     thread->desktop = 0;
+    thread->shm_fd = -1;
+    thread->shm = NULL;
+
 }
 
 /* destroy a thread when its refcount is 0 */
@@ -487,7 +494,10 @@ static void set_thread_info( struct thread *thread,
         if ((req->priority >= min && req->priority <= max) ||
             req->priority == THREAD_PRIORITY_IDLE ||
             req->priority == THREAD_PRIORITY_TIME_CRITICAL)
+        {
             thread->priority = req->priority;
+            set_scheduler_priority( thread );
+        }
         else
             set_error( STATUS_INVALID_PARAMETER );
     }
@@ -1398,6 +1408,8 @@ DECL_HANDLER(get_thread_times)
     {
         reply->creation_time  = thread->creation_time;
         reply->exit_time      = thread->exit_time;
+        reply->unix_pid       = thread->unix_pid;
+        reply->unix_tid       = thread->unix_tid;
 
         release_object( thread );
     }

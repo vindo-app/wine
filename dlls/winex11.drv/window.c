@@ -269,7 +269,7 @@ static unsigned long get_mwm_decorations( struct x11drv_win_data *data,
     if (data->shaped) return 0;
 
     if (ex_style & WS_EX_TOOLWINDOW) return 0;
-    if (ex_style & WS_EX_LAYERED) return 0;
+    if ((ex_style & (WS_EX_LAYERED | WS_EX_COMPOSITED)) == WS_EX_LAYERED) return 0;
 
     if ((style & WS_CAPTION) == WS_CAPTION)
     {
@@ -852,10 +852,8 @@ static void set_initial_wm_hints( Display *display, Window window )
     /* class hints */
     if ((class_hints = XAllocClassHint()))
     {
-        static char wine[] = "Wine";
-
         class_hints->res_name = process_name;
-        class_hints->res_class = wine;
+        class_hints->res_class = process_name;
         XSetClassHint( display, window, class_hints );
         XFree( class_hints );
     }
@@ -1024,6 +1022,7 @@ void update_net_wm_states( struct x11drv_win_data *data )
         xev.xclient.send_event = True;
         xev.xclient.format = 32;
         xev.xclient.data.l[3] = 1;
+        xev.xclient.data.l[4] = 0;
 
         for (i = 0; i < NB_NET_WM_STATES; i++)
         {
@@ -2368,7 +2367,8 @@ void CDECL X11DRV_WindowPosChanged( HWND hwnd, HWND insert_after, UINT swp_flags
             BOOL needs_map = TRUE;
 
             /* layered windows are mapped only once their attributes are set */
-            if (GetWindowLongW( hwnd, GWL_EXSTYLE ) & WS_EX_LAYERED) needs_map = data->layered;
+            if ((GetWindowLongW( hwnd, GWL_EXSTYLE ) & (WS_EX_LAYERED | WS_EX_COMPOSITED)) == WS_EX_LAYERED)
+                needs_map = data->layered;
             release_win_data( data );
             if (needs_icon) fetch_icon_data( hwnd, 0, 0 );
             if (needs_map) map_window( hwnd, new_style );

@@ -71,6 +71,7 @@ static int   (WINAPI *pInetPton)(INT,LPSTR,LPVOID);
 static int   (WINAPI *pWSALookupServiceBeginW)(LPWSAQUERYSETW,DWORD,LPHANDLE);
 static int   (WINAPI *pWSALookupServiceEnd)(HANDLE);
 static int   (WINAPI *pWSALookupServiceNextW)(HANDLE,DWORD,LPDWORD,LPWSAQUERYSETW);
+static int   (WINAPI *pWSAPoll)(WSAPOLLFD *,ULONG,INT);
 
 /**************** Structs and typedefs ***************/
 
@@ -1119,11 +1120,11 @@ static void test_WithWSAStartup(void)
     ok(res == 0, "WSAStartup() failed unexpectedly: %d\n", res);
 
     /* show that sockets are destroyed automatically after WSACleanup */
-    todo_wine {
     SetLastError(0xdeadbeef);
     res = send(src, "TEST", 4, 0);
     error = WSAGetLastError();
     ok(res == SOCKET_ERROR, "send should have failed\n");
+    todo_wine
     ok(error == WSAENOTSOCK, "expected 10038, got %d\n", error);
 
     SetLastError(0xdeadbeef);
@@ -1131,8 +1132,6 @@ static void test_WithWSAStartup(void)
     error = WSAGetLastError();
     ok(res == SOCKET_ERROR, "closesocket should have failed\n");
     ok(error == WSAENOTSOCK, "expected 10038, got %d\n", error);
-    }
-
     closesocket(src);
     closesocket(dst);
 
@@ -1163,6 +1162,7 @@ static void Init (void)
     pWSALookupServiceBeginW = (void *)GetProcAddress(hws2_32, "WSALookupServiceBeginW");
     pWSALookupServiceEnd = (void *)GetProcAddress(hws2_32, "WSALookupServiceEnd");
     pWSALookupServiceNextW = (void *)GetProcAddress(hws2_32, "WSALookupServiceNextW");
+    pWSAPoll = (void *)GetProcAddress(hws2_32, "WSAPoll");
 
     ok ( WSAStartup ( ver, &data ) == 0, "WSAStartup failed\n" );
     tls = TlsAlloc();
@@ -4921,6 +4921,8 @@ static void test_send(void)
     OVERLAPPED ov;
     BOOL bret;
     DWORD id, bytes_sent, dwRet;
+    DWORD expected_time, connect_time;
+    socklen_t optlen;
 
     memset(&ov, 0, sizeof(ov));
 
@@ -4929,6 +4931,7 @@ static void test_send(void)
         ok(0, "creating socket pair failed, skipping test\n");
         return;
     }
+    expected_time = GetTickCount();
 
     set_blocking(dst, FALSE);
     /* force disable buffering so we can get a pending overlapped request */
@@ -5014,6 +5017,22 @@ static void test_send(void)
     ret = WSASend(dst, &buf, 1, NULL, 0, &ov, NULL);
     ok(ret == SOCKET_ERROR && WSAGetLastError() == ERROR_IO_PENDING,
        "Failed to start overlapped send %d - %d\n", ret, WSAGetLastError());
+
+    expected_time = (GetTickCount() - expected_time) / 1000;
+
+    connect_time = 0xdeadbeef;
+    optlen = sizeof(connect_time);
+    ret = getsockopt(dst, SOL_SOCKET, SO_CONNECT_TIME, (char *)&connect_time, &optlen);
+    ok(!ret, "getsockopt failed %d\n", WSAGetLastError());
+    ok(connect_time >= expected_time && connect_time <= expected_time + 1,
+       "unexpected connect time %u, expected %u\n", connect_time, expected_time);
+
+    connect_time = 0xdeadbeef;
+    optlen = sizeof(connect_time);
+    ret = getsockopt(src, SOL_SOCKET, SO_CONNECT_TIME, (char *)&connect_time, &optlen);
+    ok(!ret, "getsockopt failed %d\n", WSAGetLastError());
+    ok(connect_time >= expected_time && connect_time <= expected_time + 1,
+       "unexpected connect time %u, expected %u\n", connect_time, expected_time);
 
 end:
     if (src != INVALID_SOCKET)
@@ -6303,6 +6322,229 @@ end:
         WSACloseEvent(ov.hEvent);
 }
 
+#define POLL_CLEAR() ix = 0
+#define POLL_SET(s, ev) {fds[ix].fd = s; fds[ix++].events = ev;}
+#define POLL_ISSET(s, rev) poll_isset(fds, ix, s, rev)
+static BOOL poll_isset(WSAPOLLFD *fds, int max, SOCKET s, int rev)
+{
+    int k;
+    for (k = 0; k < max; k++)
+        if (fds[k].fd == s && (fds[k].revents == rev)) return TRUE;
+    return FALSE;
+}
+
+static void test_WSAPoll(void)
+{
+    int ix, ret, err, poll_timeout;
+    SOCKET fdListen, fdRead, fdWrite;
+    struct sockaddr_in address;
+    socklen_t len;
+    static char tmp_buf[1024];
+    WSAPOLLFD fds[16];
+    HANDLE thread_handle;
+    DWORD id;
+
+    if (!pWSAPoll) /* >= Vista */
+    {
+        skip("WSAPoll is unsupported, some tests will be skipped.\n");
+        return;
+    }
+
+    /* Invalid parameters test */
+    SetLastError(0xdeadbeef);
+    ret = pWSAPoll(NULL, 0, 0);
+    err = GetLastError();
+    ok(ret == SOCKET_ERROR, "expected -1, got %d\n", ret);
+    ok(err == WSAEINVAL, "expected 10022, got %d\n", err);
+    SetLastError(0xdeadbeef);
+    ret = pWSAPoll(NULL, 1, 0);
+    err = GetLastError();
+    ok(ret == SOCKET_ERROR, "expected -1, got %d\n", ret);
+    ok(err == WSAEFAULT, "expected 10014, got %d\n", err);
+    SetLastError(0xdeadbeef);
+    ret = pWSAPoll(NULL, 0, 1);
+    err = GetLastError();
+    ok(ret == SOCKET_ERROR, "expected -1, got %d\n", ret);
+    ok(err == WSAEINVAL, "expected 10022, got %d\n", err);
+    SetLastError(0xdeadbeef);
+    ret = pWSAPoll(NULL, 1, 1);
+    err = GetLastError();
+    ok(ret == SOCKET_ERROR, "expected -1, got %d\n", ret);
+    ok(err == WSAEFAULT, "expected 10014, got %d\n", err);
+
+    /* WSAPoll() tries to mime the unix poll() call. The following tests do:
+     * - check if a connection attempt ended with success or error;
+     * - check if a pending connection is waiting for acceptance;
+     * - check for data to read, availability for write and OOB data
+     */
+    memset(&address, 0, sizeof(address));
+    address.sin_addr.s_addr = inet_addr("127.0.0.1");
+    address.sin_family = AF_INET;
+    len = sizeof(address);
+    fdListen = setup_server_socket(&address, &len);
+    poll_timeout = 100;
+
+    /* When no events are pending poll returns 0 with no error */
+    POLL_CLEAR();
+    POLL_SET(fdListen, POLLIN);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 0, "expected 0, got %d\n", ret);
+
+    /* Test listening socket connection attempt notifications */
+    fdWrite = setup_connector_socket(&address, len, TRUE);
+    POLL_CLEAR();
+    POLL_SET(fdListen, POLLIN | POLLOUT);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    ok(POLL_ISSET(fdListen, POLLRDNORM), "fdListen socket events incorrect\n");
+    len = sizeof(address);
+    fdRead = accept(fdListen, (struct sockaddr*) &address, &len);
+    ok(fdRead != INVALID_SOCKET, "expected a valid socket\n");
+
+    /* Test client side connection attempt notifications */
+    POLL_CLEAR();
+    POLL_SET(fdListen, POLLIN | POLLOUT);
+    POLL_SET(fdRead, POLLIN | POLLOUT);
+    POLL_SET(fdWrite, POLLIN | POLLOUT);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 2, "expected 2, got %d\n", ret);
+    ok(POLL_ISSET(fdWrite, POLLWRNORM), "fdWrite socket events incorrect\n");
+    ok(POLL_ISSET(fdRead, POLLWRNORM), "fdRead socket events incorrect\n");
+    len = sizeof(id);
+    id = 0xdeadbeef;
+    ok(!getsockopt(fdWrite, SOL_SOCKET, SO_ERROR, (char*)&id, &len),
+       "getsockopt failed with %d\n",WSAGetLastError());
+    ok(id == 0, "expected 0, got %d\n", id);
+
+    /* Test data receiving notifications */
+    ret = send(fdWrite, "1234", 4, 0);
+    ok(ret == 4, "expected 4, got %d\n", ret);
+    POLL_CLEAR();
+    POLL_SET(fdListen, POLLIN | POLLOUT);
+    POLL_SET(fdRead, POLLIN);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    ok(POLL_ISSET(fdRead, POLLRDNORM), "fdRead socket events incorrect\n");
+    ret = recv(fdRead, tmp_buf, sizeof(tmp_buf), 0);
+    ok(ret == 4, "expected 4, got %d\n", ret);
+    ok(!strcmp(tmp_buf, "1234"), "data received differs from sent\n");
+
+    /* Test OOB data notifications */
+    ret = send(fdWrite, "A", 1, MSG_OOB);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    POLL_CLEAR();
+    POLL_SET(fdListen, POLLIN | POLLOUT);
+    POLL_SET(fdRead, POLLIN);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    ok(POLL_ISSET(fdRead, POLLRDBAND), "fdRead socket events incorrect\n");
+    tmp_buf[0] = 0xAF;
+    ret = recv(fdRead, tmp_buf, sizeof(tmp_buf), MSG_OOB);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    ok(tmp_buf[0] == 'A', "expected 'A', got 0x%02X\n", tmp_buf[0]);
+
+    /* If the socket is OOBINLINED the notification is like normal data */
+    ret = 1;
+    ret = setsockopt(fdRead, SOL_SOCKET, SO_OOBINLINE, (char*) &ret, sizeof(ret));
+    ok(ret == 0, "expected 0, got %d\n", ret);
+    ret = send(fdWrite, "A", 1, MSG_OOB);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    POLL_CLEAR();
+    POLL_SET(fdListen, POLLIN | POLLOUT);
+    POLL_SET(fdRead, POLLIN | POLLOUT);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    tmp_buf[0] = 0xAF;
+    SetLastError(0xdeadbeef);
+    ret = recv(fdRead, tmp_buf, sizeof(tmp_buf), MSG_OOB);
+    ok(ret == SOCKET_ERROR, "expected -1, got %d\n", ret);
+    ok(GetLastError() == WSAEINVAL, "expected 10022, got %d\n", GetLastError());
+    ret = recv(fdRead, tmp_buf, sizeof(tmp_buf), 0);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    ok(tmp_buf[0] == 'A', "expected 'A', got 0x%02X\n", tmp_buf[0]);
+
+    /* Test connection closed notifications */
+    ret = closesocket(fdRead);
+    ok(ret == 0, "expected 0, got %d\n", ret);
+    POLL_CLEAR();
+    POLL_SET(fdListen, POLLIN | POLLOUT);
+    POLL_SET(fdWrite, POLLIN);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+todo_wine
+    ok(POLL_ISSET(fdWrite, POLLHUP), "fdWrite socket events incorrect\n");
+    ret = recv(fdWrite, tmp_buf, sizeof(tmp_buf), 0);
+    ok(ret == 0, "expected 0, got %d\n", ret);
+
+    /* When a connection is attempted to a non-listening socket due to a bug
+     * in the MS code it will never be notified. This is a long standing issue
+     * that will never be fixed for compatibility reasons so we have to deal
+     * with it manually. */
+    ret = closesocket(fdWrite);
+    ok(ret == 0, "expected 0, got %d\n", ret);
+    ret = closesocket(fdListen);
+    ok(ret == 0, "expected 0, got %d\n", ret);
+    len = sizeof(address);
+    fdWrite = setup_connector_socket(&address, len, TRUE);
+    POLL_CLEAR();
+    POLL_SET(fdWrite, POLLIN | POLLOUT);
+    poll_timeout = 2000;
+    ret = pWSAPoll(fds, ix, poll_timeout);
+todo_wine
+    ok(ret == 0, "expected 0, got %d\n", ret);
+    len = sizeof(id);
+    id = 0xdeadbeef;
+    ok(!getsockopt(fdWrite, SOL_SOCKET, SO_ERROR, (char*)&id, &len),
+       "getsockopt failed with %d\n", WSAGetLastError());
+    ok(id == WSAECONNREFUSED, "expected 10061, got %d\n", id);
+    closesocket(fdWrite);
+
+    /* Try poll() on a closed socket after connection */
+    ok(!tcp_socketpair(&fdRead, &fdWrite), "creating socket pair failed\n");
+    closesocket(fdRead);
+    POLL_CLEAR();
+    POLL_SET(fdWrite, POLLIN | POLLOUT);
+    POLL_SET(fdRead, POLLIN | POLLOUT);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    ok(POLL_ISSET(fdRead, POLLNVAL), "fdRead socket events incorrect\n");
+    POLL_CLEAR();
+    POLL_SET(fdWrite, POLLIN | POLLOUT);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+todo_wine
+    ok(POLL_ISSET(fdWrite, POLLWRNORM | POLLHUP) || broken(POLL_ISSET(fdWrite, POLLWRNORM)) /* <= 2008 */,
+       "fdWrite socket events incorrect\n");
+    closesocket(fdWrite);
+
+    /* Close the socket currently being polled in a thread */
+    ok(!tcp_socketpair(&fdRead, &fdWrite), "creating socket pair failed\n");
+    thread_handle = CreateThread(NULL, 0, SelectCloseThread, &fdWrite, 0, &id);
+    ok(thread_handle != NULL, "CreateThread failed unexpectedly: %d\n", GetLastError());
+    POLL_CLEAR();
+    POLL_SET(fdWrite, POLLIN | POLLOUT);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+    ok(POLL_ISSET(fdWrite, POLLWRNORM), "fdWrite socket events incorrect\n");
+    WaitForSingleObject (thread_handle, 1000);
+    closesocket(fdRead);
+    /* test again with less flags - behavior changes */
+    ok(!tcp_socketpair(&fdRead, &fdWrite), "creating socket pair failed\n");
+    thread_handle = CreateThread(NULL, 0, SelectCloseThread, &fdWrite, 0, &id);
+    ok(thread_handle != NULL, "CreateThread failed unexpectedly: %d\n", GetLastError());
+    POLL_CLEAR();
+    POLL_SET(fdWrite, POLLIN);
+    ret = pWSAPoll(fds, ix, poll_timeout);
+    ok(ret == 1, "expected 1, got %d\n", ret);
+todo_wine
+    ok(POLL_ISSET(fdWrite, POLLNVAL), "fdWrite socket events incorrect\n");
+    WaitForSingleObject (thread_handle, 1000);
+    closesocket(fdRead);
+}
+#undef POLL_SET
+#undef POLL_ISSET
+#undef POLL_CLEAR
+
 static void test_GetAddrInfoW(void)
 {
     static const WCHAR port[] = {'8','0',0};
@@ -6313,12 +6555,17 @@ static void test_GetAddrInfoW(void)
     static const WCHAR zero[] = {'0',0};
     int i, ret;
     ADDRINFOW *result, *result2, *p, hint;
+    char computernameA[256];
+    WCHAR computername[sizeof(computernameA)];
 
     if (!pGetAddrInfoW || !pFreeAddrInfoW)
     {
         win_skip("GetAddrInfoW and/or FreeAddrInfoW not present\n");
         return;
     }
+    ret = gethostname(computernameA, sizeof(computernameA));
+    ok(!ret, "Expected gethostname to work\n");
+    MultiByteToWideChar(CP_ACP, 0, computernameA, -1, computername, sizeof(computernameA));
     memset(&hint, 0, sizeof(ADDRINFOW));
 
     result = (ADDRINFOW *)0xdeadbeef;
@@ -6380,6 +6627,25 @@ static void test_GetAddrInfoW(void)
 
     result = NULL;
     ret = pGetAddrInfoW(localhost, port, NULL, &result);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    pFreeAddrInfoW(result);
+
+    ret = pGetAddrInfoW(computername, NULL, NULL, &result);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    pFreeAddrInfoW(result);
+
+    result = NULL;
+    ret = pGetAddrInfoW(computername, empty, NULL, &result);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    pFreeAddrInfoW(result);
+
+    result = NULL;
+    ret = pGetAddrInfoW(computername, zero, NULL, &result);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    pFreeAddrInfoW(result);
+
+    result = NULL;
+    ret = pGetAddrInfoW(computername, port, NULL, &result);
     ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
     pFreeAddrInfoW(result);
 
@@ -6475,12 +6741,15 @@ static void test_getaddrinfo(void)
 {
     int i, ret;
     ADDRINFOA *result, *result2, *p, hint;
+    char computername[256];
 
     if (!pgetaddrinfo || !pfreeaddrinfo)
     {
         win_skip("getaddrinfo and/or freeaddrinfo not present\n");
         return;
     }
+    ret = gethostname(computername, sizeof(computername));
+    ok(!ret, "Expected gethostname to work\n");
     memset(&hint, 0, sizeof(ADDRINFOA));
 
     result = (ADDRINFOA *)0xdeadbeef;
@@ -6543,6 +6812,26 @@ static void test_getaddrinfo(void)
 
     result = NULL;
     ret = pgetaddrinfo("localhost", "80", NULL, &result);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    pfreeaddrinfo(result);
+
+    result = NULL;
+    ret = pgetaddrinfo(computername, NULL, NULL, &result);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    pfreeaddrinfo(result);
+
+    result = NULL;
+    ret = pgetaddrinfo(computername, "", NULL, &result);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    pfreeaddrinfo(result);
+
+    result = NULL;
+    ret = pgetaddrinfo(computername, "0", NULL, &result);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    pfreeaddrinfo(result);
+
+    result = NULL;
+    ret = pgetaddrinfo(computername, "80", NULL, &result);
     ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
     pfreeaddrinfo(result);
 
@@ -7345,6 +7634,266 @@ end:
         closesocket(connector);
     if (connector2 != INVALID_SOCKET)
         closesocket(connector2);
+}
+
+#define compare_file(h,s,o) compare_file2(h,s,o,__FILE__,__LINE__)
+
+static void compare_file2(HANDLE handle, SOCKET sock, int offset, const char *file, int line)
+{
+    char buf1[256], buf2[256];
+    BOOL success;
+    int i = 0;
+
+    SetFilePointer(handle, offset, NULL, FILE_BEGIN);
+    while (1)
+    {
+        DWORD n1 = 0, n2 = 0;
+
+        success = ReadFile(handle, buf1, sizeof(buf1), &n1, NULL);
+        ok_(file,line)(success, "Failed to read from file.\n");
+        if (success && n1 == 0)
+            break;
+        else if(!success)
+            return;
+        n2 = recv(sock, buf2, n1, 0);
+        ok_(file,line)(n1 == n2, "Block %d size mismatch (%d != %d)\n", i, n1, n2);
+        ok_(file,line)(memcmp(buf1, buf2, n2) == 0, "Block %d failed\n", i);
+        i++;
+    }
+}
+
+static void test_TransmitFile(void)
+{
+    DWORD num_bytes, err, file_size, total_sent;
+    GUID transmitFileGuid = WSAID_TRANSMITFILE;
+    LPFN_TRANSMITFILE pTransmitFile = NULL;
+    HANDLE file = INVALID_HANDLE_VALUE;
+    char header_msg[] = "hello world";
+    char footer_msg[] = "goodbye!!!";
+    char system_ini_path[MAX_PATH];
+    struct sockaddr_in bindAddress;
+    TRANSMIT_FILE_BUFFERS buffers;
+    SOCKET client, server, dest;
+    WSAOVERLAPPED ov;
+    char buf[256];
+    int iret, len;
+    BOOL bret;
+
+    memset( &ov, 0, sizeof(ov) );
+
+    /* Setup sockets for testing TransmitFile */
+    client = socket(AF_INET, SOCK_STREAM, 0);
+    server = socket(AF_INET, SOCK_STREAM, 0);
+    if (client == INVALID_SOCKET || server == INVALID_SOCKET)
+    {
+        skip("could not create acceptor socket, error %d\n", WSAGetLastError());
+        goto cleanup;
+    }
+    iret = WSAIoctl(client, SIO_GET_EXTENSION_FUNCTION_POINTER, &transmitFileGuid, sizeof(transmitFileGuid),
+                    &pTransmitFile, sizeof(pTransmitFile), &num_bytes, NULL, NULL);
+    if (iret)
+    {
+        skip("WSAIoctl failed to get TransmitFile with ret %d + errno %d\n", iret, WSAGetLastError());
+        goto cleanup;
+    }
+    GetSystemWindowsDirectoryA(system_ini_path, MAX_PATH );
+    strcat(system_ini_path, "\\system.ini");
+    file = CreateFileA(system_ini_path, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_ALWAYS, 0x0, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+    {
+        skip("Unable to open a file to transmit.\n");
+        goto cleanup;
+    }
+    file_size = GetFileSize(file, NULL);
+
+    /* Test TransmitFile with an invalid socket */
+    bret = pTransmitFile(INVALID_SOCKET, file, 0, 0, NULL, NULL, 0);
+    err = WSAGetLastError();
+    ok(!bret, "TransmitFile succeeded unexpectedly.\n");
+    ok(err == WSAENOTSOCK, "TransmitFile triggered unexpected errno (%d != %d)\n", err, WSAENOTSOCK);
+
+    /* Test a bogus TransmitFile without a connected socket */
+    bret = pTransmitFile(client, NULL, 0, 0, NULL, NULL, TF_REUSE_SOCKET);
+    err = WSAGetLastError();
+    ok(!bret, "TransmitFile succeeded unexpectedly.\n");
+    ok(err == WSAENOTCONN, "TransmitFile triggered unexpected errno (%d != %d)\n", err, WSAENOTCONN);
+
+    /* Setup a properly connected socket for transfers */
+    memset(&bindAddress, 0, sizeof(bindAddress));
+    bindAddress.sin_family = AF_INET;
+    bindAddress.sin_port = htons(9375);
+    bindAddress.sin_addr.s_addr = inet_addr("127.0.0.1");
+    iret = bind(server, (struct sockaddr*)&bindAddress, sizeof(bindAddress));
+    if (iret != 0)
+    {
+        skip("failed to bind(), error %d\n", WSAGetLastError());
+        goto cleanup;
+    }
+    iret = listen(server, 1);
+    if (iret != 0)
+    {
+        skip("failed to listen(), error %d\n", WSAGetLastError());
+        goto cleanup;
+    }
+    iret = connect(client, (struct sockaddr*)&bindAddress, sizeof(bindAddress));
+    if (iret != 0)
+    {
+        skip("failed to connect(), error %d\n", WSAGetLastError());
+        goto cleanup;
+    }
+    len = sizeof(bindAddress);
+    dest = accept(server, (struct sockaddr*)&bindAddress, &len);
+    if (dest == INVALID_SOCKET)
+    {
+        skip("failed to accept(), error %d\n", WSAGetLastError());
+        goto cleanup;
+    }
+    if (set_blocking(dest, FALSE))
+    {
+        skip("couldn't make socket non-blocking, error %d\n", WSAGetLastError());
+        goto cleanup;
+    }
+
+    /* Test TransmitFile with no possible buffer */
+    bret = pTransmitFile(client, NULL, 0, 0, NULL, NULL, 0);
+    ok(bret, "TransmitFile failed unexpectedly.\n");
+    iret = recv(dest, buf, sizeof(buf), 0);
+    ok(iret == -1, "Returned an unexpected buffer from TransmitFile (%d != -1).\n", iret);
+
+    /* Test TransmitFile with only buffer data */
+    buffers.Head = &header_msg[0];
+    buffers.HeadLength = sizeof(header_msg)+1;
+    buffers.Tail = &footer_msg[0];
+    buffers.TailLength = sizeof(footer_msg)+1;
+    bret = pTransmitFile(client, NULL, 0, 0, NULL, &buffers, 0);
+    ok(bret, "TransmitFile failed unexpectedly.\n");
+    iret = recv(dest, buf, sizeof(buf), 0);
+    ok(iret == sizeof(header_msg)+sizeof(footer_msg)+2,
+       "Returned an unexpected buffer from TransmitFile (%d != %d).\n", iret,
+       sizeof(header_msg)+sizeof(footer_msg)+2);
+    ok(memcmp(&buf[0], &header_msg[0], sizeof(header_msg)+1) == 0,
+       "TransmitFile header buffer did not match!\n");
+    ok(memcmp(&buf[sizeof(header_msg)+1], &footer_msg[0], sizeof(footer_msg)+1) == 0,
+       "TransmitFile footer buffer did not match!\n");
+
+    /* Test TransmitFile with only file data */
+    bret = pTransmitFile(client, file, 0, 0, NULL, NULL, 0);
+    ok(bret, "TransmitFile failed unexpectedly.\n");
+    compare_file(file, dest, 0);
+
+    /* Test TransmitFile with both file and buffer data */
+    buffers.Head = &header_msg[0];
+    buffers.HeadLength = sizeof(header_msg)+1;
+    buffers.Tail = &footer_msg[0];
+    buffers.TailLength = sizeof(footer_msg)+1;
+    SetFilePointer(file, 0, NULL, FILE_BEGIN);
+    bret = pTransmitFile(client, file, 0, 0, NULL, &buffers, 0);
+    ok(bret, "TransmitFile failed unexpectedly.\n");
+    iret = recv(dest, buf, sizeof(header_msg)+1, 0);
+    ok(memcmp(buf, &header_msg[0], sizeof(header_msg)+1) == 0,
+       "TransmitFile header buffer did not match!\n");
+    compare_file(file, dest, 0);
+    iret = recv(dest, buf, sizeof(footer_msg)+1, 0);
+    ok(memcmp(buf, &footer_msg[0], sizeof(footer_msg)+1) == 0,
+       "TransmitFile footer buffer did not match!\n");
+
+    /* Test overlapped TransmitFile */
+    ov.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (ov.hEvent == INVALID_HANDLE_VALUE)
+    {
+        skip("Could not create event object, some tests will be skipped. errno = %d\n",
+             GetLastError());
+        goto cleanup;
+    }
+    SetFilePointer(file, 0, NULL, FILE_BEGIN);
+    bret = pTransmitFile(client, file, 0, 0, &ov, NULL, 0);
+    err = WSAGetLastError();
+    ok(!bret, "TransmitFile succeeded unexpectedly.\n");
+    ok(err == ERROR_IO_PENDING, "TransmitFile triggered unexpected errno (%d != %d)\n",
+       err, ERROR_IO_PENDING);
+    iret = WaitForSingleObject(ov.hEvent, 2000);
+    ok(iret == WAIT_OBJECT_0, "Overlapped TransmitFile failed.\n");
+    WSAGetOverlappedResult(client, &ov, &total_sent, FALSE, NULL);
+    ok(total_sent == file_size,
+       "Overlapped TransmitFile sent an unexpected number of bytes (%d != %d).\n",
+       total_sent, file_size);
+    compare_file(file, dest, 0);
+
+    /* Test overlapped TransmitFile w/ start offset */
+    ov.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (ov.hEvent == INVALID_HANDLE_VALUE)
+    {
+        skip("Could not create event object, some tests will be skipped. errno = %d\n", GetLastError());
+        goto cleanup;
+    }
+    SetFilePointer(file, 0, NULL, FILE_BEGIN);
+    ov.Offset = 10;
+    bret = pTransmitFile(client, file, 0, 0, &ov, NULL, 0);
+    err = WSAGetLastError();
+    ok(!bret, "TransmitFile succeeded unexpectedly.\n");
+    ok(err == ERROR_IO_PENDING, "TransmitFile triggered unexpected errno (%d != %d)\n", err, ERROR_IO_PENDING);
+    iret = WaitForSingleObject(ov.hEvent, 2000);
+    ok(iret == WAIT_OBJECT_0, "Overlapped TransmitFile failed.\n");
+    WSAGetOverlappedResult(client, &ov, &total_sent, FALSE, NULL);
+    ok(total_sent == (file_size - ov.Offset),
+       "Overlapped TransmitFile sent an unexpected number of bytes (%d != %d).\n",
+       total_sent, file_size - ov.Offset);
+    compare_file(file, dest, ov.Offset);
+
+    /* Test overlapped TransmitFile w/ file and buffer data */
+    ov.hEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
+    if (ov.hEvent == INVALID_HANDLE_VALUE)
+    {
+        skip("Could not create event object, some tests will be skipped. errno = %d\n", GetLastError());
+        goto cleanup;
+    }
+    buffers.Head = &header_msg[0];
+    buffers.HeadLength = sizeof(header_msg)+1;
+    buffers.Tail = &footer_msg[0];
+    buffers.TailLength = sizeof(footer_msg)+1;
+    SetFilePointer(file, 0, NULL, FILE_BEGIN);
+    ov.Offset = 0;
+    bret = pTransmitFile(client, file, 0, 0, &ov, &buffers, 0);
+    err = WSAGetLastError();
+    ok(!bret, "TransmitFile succeeded unexpectedly.\n");
+    ok(err == ERROR_IO_PENDING, "TransmitFile triggered unexpected errno (%d != %d)\n", err, ERROR_IO_PENDING);
+    iret = WaitForSingleObject(ov.hEvent, 2000);
+    ok(iret == WAIT_OBJECT_0, "Overlapped TransmitFile failed.\n");
+    WSAGetOverlappedResult(client, &ov, &total_sent, FALSE, NULL);
+    ok(total_sent == (file_size + buffers.HeadLength + buffers.TailLength),
+       "Overlapped TransmitFile sent an unexpected number of bytes (%d != %d).\n",
+       total_sent, file_size  + buffers.HeadLength + buffers.TailLength);
+    iret = recv(dest, buf, sizeof(header_msg)+1, 0);
+    ok(memcmp(buf, &header_msg[0], sizeof(header_msg)+1) == 0,
+       "TransmitFile header buffer did not match!\n");
+    compare_file(file, dest, 0);
+    iret = recv(dest, buf, sizeof(footer_msg)+1, 0);
+    ok(memcmp(buf, &footer_msg[0], sizeof(footer_msg)+1) == 0,
+       "TransmitFile footer buffer did not match!\n");
+
+    /* Test TransmitFile w/ TF_DISCONNECT */
+    SetFilePointer(file, 0, NULL, FILE_BEGIN);
+    bret = pTransmitFile(client, file, 0, 0, NULL, NULL, TF_DISCONNECT);
+    ok(bret, "TransmitFile failed unexpectedly.\n");
+    compare_file(file, dest, 0);
+    closesocket(client);
+    ok(send(client, "test", 4, 0) == -1, "send() after TF_DISCONNECT succeeded unexpectedly.\n");
+    err = WSAGetLastError();
+    todo_wine ok(err == WSAENOTSOCK, "send() after TF_DISCONNECT triggered unexpected errno (%d != %d)\n",
+                 err, WSAENOTSOCK);
+
+    /* Test TransmitFile with a UDP datagram socket */
+    client = socket(AF_INET, SOCK_DGRAM, 0);
+    bret = pTransmitFile(client, NULL, 0, 0, NULL, NULL, 0);
+    err = WSAGetLastError();
+    ok(!bret, "TransmitFile succeeded unexpectedly.\n");
+    ok(err == WSAENOTCONN, "TransmitFile triggered unexpected errno (%d != %d)\n", err, WSAENOTCONN);
+
+cleanup:
+    CloseHandle(file);
+    CloseHandle(ov.hEvent);
+    closesocket(client);
+    closesocket(server);
 }
 
 static void test_getpeername(void)
@@ -8710,11 +9259,13 @@ START_TEST( sock )
     test_WSASendMsg();
     test_WSASendTo();
     test_WSARecv();
+    test_WSAPoll();
 
     test_events(0);
     test_events(1);
 
     test_ipv6only();
+    test_TransmitFile();
     test_GetAddrInfoW();
     test_getaddrinfo();
     test_AcceptEx();

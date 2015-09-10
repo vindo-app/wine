@@ -2019,6 +2019,7 @@ void WINAPI DECLSPEC_HOTPATCH CoUninitialize(void)
  */
 HRESULT WINAPI CoDisconnectObject( LPUNKNOWN lpUnk, DWORD reserved )
 {
+    struct stub_manager *manager;
     HRESULT hr;
     IMarshal *marshal;
     APARTMENT *apt;
@@ -2039,7 +2040,12 @@ HRESULT WINAPI CoDisconnectObject( LPUNKNOWN lpUnk, DWORD reserved )
     if (!apt)
         return CO_E_NOTINITIALIZED;
 
-    apartment_disconnectobject(apt, lpUnk);
+    manager = get_stub_manager_from_object(apt, lpUnk, FALSE);
+    if (manager) {
+        /* Release stub manager twice, to remove the apartment reference. */
+        stub_manager_int_release(manager);
+        stub_manager_int_release(manager);
+    }
 
     /* Note: native is pretty broken here because it just silently
      * fails, without returning an appropriate error code if the object was
@@ -3605,32 +3611,8 @@ HRESULT WINAPI CoLockObjectExternal(
     apt = COM_CurrentApt();
     if (!apt) return CO_E_NOTINITIALIZED;
 
-    stubmgr = get_stub_manager_from_object(apt, pUnk);
-    
-    if (stubmgr)
-    {
-        if (fLock)
-            stub_manager_ext_addref(stubmgr, 1, FALSE);
-        else
-            stub_manager_ext_release(stubmgr, 1, FALSE, fLastUnlockReleases);
-        
-        stub_manager_int_release(stubmgr);
-
-        return S_OK;
-    }
-    else if (fLock)
-    {
-        stubmgr = new_stub_manager(apt, pUnk);
-
-        if (stubmgr)
-        {
-            stub_manager_ext_addref(stubmgr, 1, FALSE);
-            stub_manager_int_release(stubmgr);
-        }
-
-        return S_OK;
-    }
-    else
+    stubmgr = get_stub_manager_from_object(apt, pUnk, fLock);
+    if (!stubmgr)
     {
         WARN("stub object not found %p\n", pUnk);
         /* Note: native is pretty broken here because it just silently
@@ -3638,6 +3620,14 @@ HRESULT WINAPI CoLockObjectExternal(
          * think that the object was disconnected, when it actually wasn't */
         return S_OK;
     }
+
+    if (fLock)
+        stub_manager_ext_addref(stubmgr, 1, FALSE);
+    else
+        stub_manager_ext_release(stubmgr, 1, FALSE, fLastUnlockReleases);
+
+    stub_manager_int_release(stubmgr);
+    return S_OK;
 }
 
 /***********************************************************************

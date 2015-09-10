@@ -105,7 +105,11 @@ static void state_zenable(struct wined3d_context *context, const struct wined3d_
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
     /* No z test without depth stencil buffers */
+#if defined(STAGING_CSMT)
+    if (!state->fb.depth_stencil)
+#else  /* STAGING_CSMT */
     if (!state->fb->depth_stencil)
+#endif /* STAGING_CSMT */
     {
         TRACE("No Z buffer - disabling depth test\n");
         zenable = WINED3D_ZB_FALSE;
@@ -360,15 +364,23 @@ static GLenum gl_blend_factor(enum wined3d_blend factor, const struct wined3d_fo
         case WINED3D_BLEND_INVBLENDFACTOR:
             return GL_ONE_MINUS_CONSTANT_COLOR_EXT;
         default:
-            FIXME("Unhandled blend factor %#x.\n", factor);
+        {
+            static int once;
+            if (factor || !once++) FIXME("Unhandled blend factor %#x.\n", factor);
             return GL_NONE;
+        }
     }
 }
 
 static void state_blend(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if defined(STAGING_CSMT)
+    const struct wined3d_format *rt_format = state->fb.render_targets[0]->format;
+    unsigned int rt_fmt_flags = state->fb.render_targets[0]->format_flags;
+#else  /* STAGING_CSMT */
     const struct wined3d_format *rt_format = state->fb->render_targets[0]->format;
     unsigned int rt_fmt_flags = state->fb->render_targets[0]->format_flags;
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
     GLenum srcBlend, dstBlend;
     enum wined3d_blend d3d_blend;
@@ -587,7 +599,7 @@ void state_clipping(struct wined3d_context *context, const struct wined3d_state 
      * The enabled / disabled planes are hardcoded into the shader. Update the
      * shader to update the enabled clipplanes. In case of fixed function, we
      * need to update the clipping field from ffp_vertex_settings. */
-    context->shader_update_mask |= 1 << WINED3D_SHADER_TYPE_VERTEX;
+    context->shader_update_mask |= 1u << WINED3D_SHADER_TYPE_VERTEX;
 
     /* TODO: Keep track of previously enabled clipplanes to avoid unnecessary resetting
      * of already set values
@@ -813,7 +825,11 @@ static void state_stencil(struct wined3d_context *context, const struct wined3d_
     GLint depthFail_ccw;
 
     /* No stencil test without a stencil buffer. */
+#if defined(STAGING_CSMT)
+    if (!state->fb.depth_stencil)
+#else  /* STAGING_CSMT */
     if (!state->fb->depth_stencil)
+#endif /* STAGING_CSMT */
     {
         gl_info->gl_ops.gl.p_glDisable(GL_STENCIL_TEST);
         checkGLcall("glDisable GL_STENCIL_TEST");
@@ -909,7 +925,11 @@ static void state_stencil(struct wined3d_context *context, const struct wined3d_
 
 static void state_stencilwrite2s(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if defined(STAGING_CSMT)
+    DWORD mask = state->fb.depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#else  /* STAGING_CSMT */
     DWORD mask = state->fb->depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
     GL_EXTCALL(glActiveStencilFaceEXT(GL_BACK));
@@ -923,7 +943,11 @@ static void state_stencilwrite2s(struct wined3d_context *context, const struct w
 
 static void state_stencilwrite(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if defined(STAGING_CSMT)
+    DWORD mask = state->fb.depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#else  /* STAGING_CSMT */
     DWORD mask = state->fb->depth_stencil ? state->render_states[WINED3D_RS_STENCILWRITEMASK] : 0;
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
     gl_info->gl_ops.gl.p_glStencilMask(mask);
@@ -1125,10 +1149,17 @@ void state_fog_fragpart(struct wined3d_context *context, const struct wined3d_st
                     /* drop through */
 
                 case WINED3D_FOG_NONE:
+#if defined(STAGING_CSMT)
+                    /* Both are none? According to msdn the alpha channel of the specular
+                     * color contains a fog factor. Set it in draw_strided_slow.
+                     * Same happens with Vertexfog on transformed vertices
+                     */
+#else  /* STAGING_CSMT */
                     /* Both are none? According to msdn the alpha channel of the specular
                      * color contains a fog factor. Set it in drawStridedSlow.
                      * Same happens with Vertexfog on transformed vertices
                      */
+#endif /* STAGING_CSMT */
                     new_source = FOGSOURCE_COORD;
                     gl_info->gl_ops.gl.p_glFogi(GL_FOG_MODE, GL_LINEAR);
                     checkGLcall("glFogi(GL_FOG_MODE, GL_LINEAR)");
@@ -1213,7 +1244,7 @@ static void state_colormat(struct wined3d_context *context, const struct wined3d
     }
 
     context->num_untracked_materials = 0;
-    if ((context->stream_info.use_map & (1 << WINED3D_FFP_DIFFUSE))
+    if ((context->stream_info.use_map & (1u << WINED3D_FFP_DIFFUSE))
             && state->render_states[WINED3D_RS_COLORVERTEX])
     {
         TRACE("diff %d, amb %d, emis %d, spec %d\n",
@@ -1366,7 +1397,7 @@ static void state_normalize(struct wined3d_context *context, const struct wined3
      * by zero and is not properly defined in opengl, so avoid it
      */
     if (state->render_states[WINED3D_RS_NORMALIZENORMALS]
-            && (context->stream_info.use_map & (1 << WINED3D_FFP_NORMAL)))
+            && (context->stream_info.use_map & (1u << WINED3D_FFP_NORMAL)))
     {
         gl_info->gl_ops.gl.p_glEnable(GL_NORMALIZE);
         checkGLcall("glEnable(GL_NORMALIZE);");
@@ -1650,7 +1681,11 @@ static void state_depthbias(struct wined3d_context *context, const struct wined3
     if (state->render_states[WINED3D_RS_SLOPESCALEDEPTHBIAS]
             || state->render_states[WINED3D_RS_DEPTHBIAS])
     {
+#if defined(STAGING_CSMT)
+        const struct wined3d_rendertarget_view *depth = state->fb.depth_stencil;
+#else  /* STAGING_CSMT */
         const struct wined3d_rendertarget_view *depth = state->fb->depth_stencil;
+#endif /* STAGING_CSMT */
         float scale;
 
         union
@@ -2999,7 +3034,7 @@ static void set_tex_op(const struct wined3d_gl_info *gl_info, const struct wined
 static void tex_colorop(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     DWORD stage = (state_id - STATE_TEXTURESTAGE(0, 0)) / (WINED3D_HIGHEST_TEXTURE_STATE + 1);
-    BOOL tex_used = context->fixed_function_usage_map & (1 << stage);
+    BOOL tex_used = context->fixed_function_usage_map & (1u << stage);
     DWORD mapped_stage = context->tex_unit_map[stage];
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
@@ -3060,7 +3095,7 @@ static void tex_colorop(struct wined3d_context *context, const struct wined3d_st
 void tex_alphaop(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
     DWORD stage = (state_id - STATE_TEXTURESTAGE(0, 0)) / (WINED3D_HIGHEST_TEXTURE_STATE + 1);
-    BOOL tex_used = context->fixed_function_usage_map & (1 << stage);
+    BOOL tex_used = context->fixed_function_usage_map & (1u << stage);
     DWORD mapped_stage = context->tex_unit_map[stage];
     const struct wined3d_gl_info *gl_info = context->gl_info;
     DWORD op, arg1, arg2, arg0;
@@ -3213,7 +3248,7 @@ static void load_tex_coords(const struct wined3d_context *context, const struct 
             continue;
         }
 
-        if (coordIdx < MAX_TEXTURES && (si->use_map & (1 << (WINED3D_FFP_TEXCOORD0 + coordIdx))))
+        if (coordIdx < MAX_TEXTURES && (si->use_map & (1u << (WINED3D_FFP_TEXCOORD0 + coordIdx))))
         {
             const struct wined3d_stream_info_element *e = &si->elements[WINED3D_FFP_TEXCOORD0 + coordIdx];
 
@@ -3446,12 +3481,12 @@ static void sampler_texmatrix(struct wined3d_context *context, const struct wine
     {
         const BOOL texIsPow2 = !(texture->flags & WINED3D_TEXTURE_POW2_MAT_IDENT);
 
-        if (texIsPow2 || (context->lastWasPow2Texture & (1 << sampler)))
+        if (texIsPow2 || (context->lastWasPow2Texture & (1u << sampler)))
         {
             if (texIsPow2)
-                context->lastWasPow2Texture |= 1 << sampler;
+                context->lastWasPow2Texture |= 1u << sampler;
             else
-                context->lastWasPow2Texture &= ~(1 << sampler);
+                context->lastWasPow2Texture &= ~(1u << sampler);
 
             transform_texture(context, state,
                     STATE_TEXTURESTAGE(context->tex_unit_map[sampler], WINED3D_TSS_TEXTURE_TRANSFORM_FLAGS));
@@ -3667,12 +3702,12 @@ void apply_pixelshader(struct wined3d_context *context, const struct wined3d_sta
         context->last_was_pshader = FALSE;
     }
 
-    context->shader_update_mask |= 1 << WINED3D_SHADER_TYPE_PIXEL;
+    context->shader_update_mask |= 1u << WINED3D_SHADER_TYPE_PIXEL;
 }
 
 static void state_geometry_shader(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
-    context->shader_update_mask |= 1 << WINED3D_SHADER_TYPE_GEOMETRY;
+    context->shader_update_mask |= 1u << WINED3D_SHADER_TYPE_GEOMETRY;
 }
 
 static void shader_bumpenv(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
@@ -3927,7 +3962,7 @@ static inline void unload_numbered_array(struct wined3d_context *context, int i)
     if (gl_info->supported[ARB_INSTANCED_ARRAYS])
         GL_EXTCALL(glVertexAttribDivisor(i, 0));
 
-    context->numbered_array_mask &= ~(1 << i);
+    context->numbered_array_mask &= ~(1u << i);
 }
 
 /* This should match any arrays loaded in loadNumberedArrays
@@ -3956,9 +3991,9 @@ static void load_numbered_arrays(struct wined3d_context *context,
     {
         const struct wined3d_stream_state *stream;
 
-        if (!(stream_info->use_map & (1 << i)))
+        if (!(stream_info->use_map & (1u << i)))
         {
-            if (context->numbered_array_mask & (1 << i))
+            if (context->numbered_array_mask & (1u << i))
                 unload_numbered_array(context, i);
             if (!use_vs(state) && i == WINED3D_FFP_DIFFUSE)
                 GL_EXTCALL(glVertexAttrib4f(i, 1.0f, 1.0f, 1.0f, 1.0f));
@@ -3980,7 +4015,7 @@ static void load_numbered_arrays(struct wined3d_context *context,
         {
             /* Unload instanced arrays, they will be loaded using
              * immediate mode instead. */
-            if (context->numbered_array_mask & (1 << i))
+            if (context->numbered_array_mask & (1u << i))
                 unload_numbered_array(context, i);
             continue;
         }
@@ -4005,10 +4040,10 @@ static void load_numbered_arrays(struct wined3d_context *context,
                     stream_info->elements[i].stride, stream_info->elements[i].data.addr
                     + state->load_base_vertex_index * stream_info->elements[i].stride));
 
-            if (!(context->numbered_array_mask & (1 << i)))
+            if (!(context->numbered_array_mask & (1u << i)))
             {
                 GL_EXTCALL(glEnableVertexAttribArray(i));
-                context->numbered_array_mask |= (1 << i);
+                context->numbered_array_mask |= (1u << i);
             }
         }
         else
@@ -4023,7 +4058,7 @@ static void load_numbered_arrays(struct wined3d_context *context,
                 ptr += (ULONG_PTR)buffer_get_sysmem(stream->buffer, context);
             }
 
-            if (context->numbered_array_mask & (1 << i)) unload_numbered_array(context, i);
+            if (context->numbered_array_mask & (1u << i)) unload_numbered_array(context, i);
 
             switch (stream_info->elements[i].format->id)
             {
@@ -4047,9 +4082,9 @@ static void load_numbered_arrays(struct wined3d_context *context,
                     if (gl_info->supported[ARB_VERTEX_ARRAY_BGRA])
                     {
                         const DWORD *src = (const DWORD *)ptr;
-                        DWORD c = *src & 0xff00ff00;
-                        c |= (*src & 0xff0000) >> 16;
-                        c |= (*src & 0xff) << 16;
+                        DWORD c = *src & 0xff00ff00u;
+                        c |= (*src & 0xff0000u) >> 16;
+                        c |= (*src & 0xffu) << 16;
                         GL_EXTCALL(glVertexAttrib4Nubv(i, (GLubyte *)&c));
                         break;
                     }
@@ -4145,8 +4180,8 @@ static void load_vertex_data(struct wined3d_context *context,
     context->instance_count = 0;
 
     /* Blend Data ---------------------------------------------- */
-    if ((si->use_map & (1 << WINED3D_FFP_BLENDWEIGHT))
-            || si->use_map & (1 << WINED3D_FFP_BLENDINDICES))
+    if ((si->use_map & (1u << WINED3D_FFP_BLENDWEIGHT))
+            || si->use_map & (1u << WINED3D_FFP_BLENDINDICES))
     {
         e = &si->elements[WINED3D_FFP_BLENDWEIGHT];
 
@@ -4177,7 +4212,7 @@ static void load_vertex_data(struct wined3d_context *context,
 
             checkGLcall("glWeightPointerARB");
 
-            if (si->use_map & (1 << WINED3D_FFP_BLENDINDICES))
+            if (si->use_map & (1u << WINED3D_FFP_BLENDINDICES))
             {
                 static BOOL warned;
                 if (!warned)
@@ -4187,9 +4222,15 @@ static void load_vertex_data(struct wined3d_context *context,
                 }
             }
         } else {
+#if defined(STAGING_CSMT)
+            /* TODO: support blends in draw_strided_slow
+             * No need to write a FIXME here, this is done after the general vertex decl decoding
+             */
+#else  /* STAGING_CSMT */
             /* TODO: support blends in drawStridedSlow
              * No need to write a FIXME here, this is done after the general vertex decl decoding
              */
+#endif /* STAGING_CSMT */
             WARN("unsupported blending in openGl\n");
         }
     }
@@ -4204,7 +4245,7 @@ static void load_vertex_data(struct wined3d_context *context,
     }
 
     /* Point Size ----------------------------------------------*/
-    if (si->use_map & (1 << WINED3D_FFP_PSIZE))
+    if (si->use_map & (1u << WINED3D_FFP_PSIZE))
     {
         /* no such functionality in the fixed function GL pipeline */
         TRACE("Cannot change ptSize here in openGl\n");
@@ -4212,7 +4253,7 @@ static void load_vertex_data(struct wined3d_context *context,
     }
 
     /* Vertex Pointers -----------------------------------------*/
-    if (si->use_map & (1 << WINED3D_FFP_POSITION))
+    if (si->use_map & (1u << WINED3D_FFP_POSITION))
     {
         e = &si->elements[WINED3D_FFP_POSITION];
 
@@ -4234,7 +4275,7 @@ static void load_vertex_data(struct wined3d_context *context,
     }
 
     /* Normals -------------------------------------------------*/
-    if (si->use_map & (1 << WINED3D_FFP_NORMAL))
+    if (si->use_map & (1u << WINED3D_FFP_NORMAL))
     {
         e = &si->elements[WINED3D_FFP_NORMAL];
 
@@ -4261,7 +4302,7 @@ static void load_vertex_data(struct wined3d_context *context,
     }
 
     /* Diffuse Colour --------------------------------------------*/
-    if (si->use_map & (1 << WINED3D_FFP_DIFFUSE))
+    if (si->use_map & (1u << WINED3D_FFP_DIFFUSE))
     {
         e = &si->elements[WINED3D_FFP_DIFFUSE];
 
@@ -4289,7 +4330,7 @@ static void load_vertex_data(struct wined3d_context *context,
     }
 
     /* Specular Colour ------------------------------------------*/
-    if (si->use_map & (1 << WINED3D_FFP_SPECULAR))
+    if (si->use_map & (1u << WINED3D_FFP_SPECULAR))
     {
         TRACE("setting specular colour\n");
 
@@ -4520,7 +4561,7 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
     }
 
     context->last_was_vshader = useVertexShaderFunction;
-    context->shader_update_mask |= 1 << WINED3D_SHADER_TYPE_VERTEX;
+    context->shader_update_mask |= 1u << WINED3D_SHADER_TYPE_VERTEX;
 
     if (updateFog)
         context_apply_state(context, state, STATE_RENDER(WINED3D_RS_FOGVERTEXMODE));
@@ -4537,13 +4578,17 @@ static void vertexdeclaration(struct wined3d_context *context, const struct wine
 
         if (use_ps(state) && state->shader[WINED3D_SHADER_TYPE_PIXEL]->reg_maps.shader_version.major == 1
                 && state->shader[WINED3D_SHADER_TYPE_PIXEL]->reg_maps.shader_version.minor <= 3)
-            context->shader_update_mask |= 1 << WINED3D_SHADER_TYPE_PIXEL;
+            context->shader_update_mask |= 1u << WINED3D_SHADER_TYPE_PIXEL;
     }
 }
 
 static void viewport_miscpart(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if defined(STAGING_CSMT)
+    const struct wined3d_rendertarget_view *target = state->fb.render_targets[0];
+#else  /* STAGING_CSMT */
     const struct wined3d_rendertarget_view *target = state->fb->render_targets[0];
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
     struct wined3d_viewport vp = state->viewport;
 
@@ -4721,7 +4766,11 @@ static void scissorrect(struct wined3d_context *context, const struct wined3d_st
     }
     else
     {
+#if defined(STAGING_CSMT)
+        const struct wined3d_rendertarget_view *target = state->fb.render_targets[0];
+#else  /* STAGING_CSMT */
         const struct wined3d_rendertarget_view *target = state->fb->render_targets[0];
+#endif /* STAGING_CSMT */
         UINT height;
         UINT width;
 
@@ -4785,7 +4834,11 @@ static void psorigin(struct wined3d_context *context, const struct wined3d_state
 
 void state_srgbwrite(struct wined3d_context *context, const struct wined3d_state *state, DWORD state_id)
 {
+#if defined(STAGING_CSMT)
+    unsigned int rt_fmt_flags = state->fb.render_targets[0]->format_flags;
+#else  /* STAGING_CSMT */
     unsigned int rt_fmt_flags = state->fb->render_targets[0]->format_flags;
+#endif /* STAGING_CSMT */
     const struct wined3d_gl_info *gl_info = context->gl_info;
 
     TRACE("context %p, state %p, state_id %#x.\n", context, state, state_id);

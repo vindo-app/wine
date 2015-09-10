@@ -682,8 +682,8 @@
 @ stdcall GetFileSizeEx(long ptr)
 @ stdcall GetFileTime(long ptr ptr ptr)
 @ stdcall GetFileType(long)
-# @ stub GetFinalPathNameByHandleA
-# @ stub GetFinalPathNameByHandleW
+@ stdcall GetFinalPathNameByHandleA(long ptr long long)
+@ stdcall GetFinalPathNameByHandleW(long ptr long long)
 @ stdcall GetFirmwareEnvironmentVariableA(str str ptr long)
 @ stdcall GetFirmwareEnvironmentVariableW(wstr wstr ptr long)
 @ stdcall GetFullPathNameA(str long ptr ptr)
@@ -844,7 +844,7 @@
 @ stdcall GetTempPathW(long ptr)
 @ stdcall GetThreadContext(long ptr)
 @ stdcall GetThreadErrorMode()
-# @ stub GetThreadGroupAffinity
+@ stdcall GetThreadGroupAffinity(long ptr)
 @ stdcall GetThreadId(ptr)
 # @ stub GetThreadIdealProcessorEx
 @ stdcall GetThreadIOPendingFlag(long ptr)
@@ -1443,7 +1443,7 @@
 @ stdcall SetThreadContext(long ptr)
 @ stdcall SetThreadErrorMode(long ptr)
 @ stdcall SetThreadExecutionState(long)
-# @ stub SetThreadGroupAffinity
+@ stdcall SetThreadGroupAffinity(long ptr ptr)
 @ stdcall SetThreadIdealProcessor(long long)
 # @ stub SetThreadIdealProcessorEx
 @ stdcall SetThreadLocale(long)

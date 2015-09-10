@@ -107,7 +107,7 @@ static VOID *LoadProc(const WCHAR* strDll, const char* procName, HMODULE* DllHan
     if(!*DllHandle)
     {
         output_write(STRING_DLL_LOAD_FAILED, strDll);
-        ExitProcess(1);
+        ExitProcess(LOADLIBRARY_FAILED);
     }
     proc = (VOID *) GetProcAddress(*DllHandle, procName);
     if(!proc)
@@ -127,13 +127,13 @@ static int RegisterDll(const WCHAR* strDll)
 
     pfRegister = LoadProc(strDll, "DllRegisterServer", &DllHandle);
     if (!pfRegister)
-        return 0;
+        return GETPROCADDRESS_FAILED;
 
     hr = pfRegister();
     if(FAILED(hr))
     {
         output_write(STRING_REGISTER_FAILED, strDll);
-        return -1;
+        return DLLSERVER_FAILED;
     }
     output_write(STRING_REGISTER_SUCCESSFUL, strDll);
 
@@ -150,13 +150,13 @@ static int UnregisterDll(const WCHAR* strDll)
 
     pfUnregister = LoadProc(strDll, "DllUnregisterServer", &DllHandle);
     if (!pfUnregister)
-        return 0;
+        return GETPROCADDRESS_FAILED;
 
     hr = pfUnregister();
     if(FAILED(hr))
     {
         output_write(STRING_UNREGISTER_FAILED, strDll);
-        return -1;
+        return DLLSERVER_FAILED;
     }
     output_write(STRING_UNREGISTER_SUCCESSFUL, strDll);
 
@@ -173,7 +173,7 @@ static int InstallDll(BOOL install, const WCHAR *strDll, const WCHAR *command_li
 
     pfInstall = LoadProc(strDll, "DllInstall", &DllHandle);
     if (!pfInstall)
-        return 0;
+        return GETPROCADDRESS_FAILED;
 
     hr = pfInstall(install, command_line);
     if(FAILED(hr))
@@ -182,7 +182,7 @@ static int InstallDll(BOOL install, const WCHAR *strDll, const WCHAR *command_li
             output_write(STRING_INSTALL_FAILED, strDll);
         else
             output_write(STRING_UNINSTALL_FAILED, strDll);
-        return -1;
+        return DLLSERVER_FAILED;
     }
     if (install)
         output_write(STRING_INSTALL_SUCCESSFUL, strDll);
@@ -231,10 +231,8 @@ int wmain(int argc, WCHAR* argv[])
 
     OleInitialize(NULL);
 
-    /* Strictly, the Microsoft version processes all the flags before
+    /* We mirror the Microsoft version by processing all of the flags before
      * the files (e.g. regsvr32 file1 /s file2 is silent even for file1).
-     * For ease, we will not replicate that and will process the arguments
-     * in order.
      *
      * Note the complication that this version may be passed Unix format filenames
      * which could be mistaken for flags. The Windows version conveniently
@@ -243,8 +241,14 @@ int wmain(int argc, WCHAR* argv[])
      */
     for(i = 1; i < argc; i++)
     {
-        if ((argv[i][0] == '/' || argv[i][0] == '-') && (!argv[i][2] || argv[i][2] == ':'))
+        if (argv[i][0] == '/' || argv[i][0] == '-')
         {
+            if (!argv[i][1])
+                return INVALID_ARG;
+
+            if (argv[i][2] && argv[i][2] != ':')
+                continue;
+
             switch (tolowerW(argv[i][1]))
             {
             case 'u':
@@ -268,10 +272,18 @@ int wmain(int argc, WCHAR* argv[])
             default:
                 output_write(STRING_UNRECOGNIZED_SWITCH, argv[i]);
                 output_write(STRING_USAGE);
-                return 1;
+                return INVALID_ARG;
             }
+            argv[i] = NULL;
         }
-        else
+    }
+
+    if (!CallInstall && !CallRegister) /* flags: /n or /u /n */
+        return INVALID_ARG;
+
+    for (i = 1; i < argc; i++)
+    {
+        if (argv[i])
         {
             WCHAR *DllName = argv[i];
             int res = 0;
@@ -303,7 +315,7 @@ int wmain(int argc, WCHAR* argv[])
     {
         output_write(STRING_HEADER);
         output_write(STRING_USAGE);
-        return 1;
+        return INVALID_ARG;
     }
 
     OleUninitialize();

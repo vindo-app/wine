@@ -1700,11 +1700,7 @@ static HRESULT WINAPI d3dx9_mesh_OptimizeInplace(ID3DXMesh *iface, DWORD flags, 
         if (FAILED(hr)) goto cleanup;
     } else if (flags & D3DXMESHOPT_ATTRSORT) {
         if (!(flags & D3DXMESHOPT_IGNOREVERTS))
-        {
             FIXME("D3DXMESHOPT_ATTRSORT vertex reordering not implemented.\n");
-            hr = E_NOTIMPL;
-            goto cleanup;
-        }
 
         hr = iface->lpVtbl->LockAttributeBuffer(iface, 0, &attrib_buffer);
         if (FAILED(hr)) goto cleanup;
@@ -3334,6 +3330,13 @@ static HRESULT parse_mesh(ID3DXFileData *filedata, struct mesh_data *mesh_data, 
         goto end;
     }
 
+    if ((provide_flags & PROVIDE_SKININFO) && !mesh_data->skin_info)
+    {
+        hr = create_dummy_skin(&mesh_data->skin_info);
+        if (FAILED(hr))
+            goto end;
+    }
+
     hr = D3D_OK;
 
 end:
@@ -4042,6 +4045,12 @@ HRESULT WINAPI D3DXFrameDestroy(D3DXFRAME *frame, ID3DXAllocateHierarchy *alloc_
         if (FAILED(hr)) return hr;
     }
     return D3D_OK;
+}
+
+D3DXFRAME* WINAPI D3DXFrameFind(const D3DXFRAME *frame_root, const char *name)
+{
+    FIXME("frame_root %p, name %s stub.\n", frame_root, debugstr_a(name));
+    return NULL;
 }
 
 HRESULT WINAPI D3DXLoadMeshFromXA(const char *filename, DWORD options, struct IDirect3DDevice9 *device,
@@ -5153,7 +5162,7 @@ HRESULT WINAPI D3DXCreateTeapot(struct IDirect3DDevice9 *device,
 {
     FIXME("(%p, %p, %p): stub\n", device, mesh, adjacency);
 
-    return E_NOTIMPL;
+    return D3DXCreateSphere(device, 1.0f, 4, 4, mesh, adjacency);
 }
 
 HRESULT WINAPI D3DXCreateTextA(struct IDirect3DDevice9 *device, HDC hdc, const char *text, float deviation,
@@ -7514,6 +7523,18 @@ HRESULT WINAPI D3DXComputeNormals(struct ID3DXBaseMesh *mesh, const DWORD *adjac
             D3DX_DEFAULT, 0, D3DX_DEFAULT, 0, D3DDECLUSAGE_NORMAL, 0,
             D3DXTANGENT_GENERATE_IN_PLACE | D3DXTANGENT_CALCULATE_NORMALS,
             adjacency, -1.01f, -0.01f, -1.01f, NULL, NULL);
+}
+
+/*************************************************************************
+ * D3DXComputeNormalMap    (D3DX9_36.@)
+ */
+HRESULT WINAPI D3DXComputeNormalMap(IDirect3DTexture9 *texture, IDirect3DTexture9 *src_texture,
+        const PALETTEENTRY *src_palette, DWORD flags, DWORD channel, FLOAT amplitude)
+{
+    FIXME("texture %p, src_texture %p, src_palette %p, flags %#x, channel %u, amplitude %f stub.\n",
+            texture, src_texture, src_palette, flags, channel, amplitude);
+
+    return D3D_OK;
 }
 
 /*************************************************************************

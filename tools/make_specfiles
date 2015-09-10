@@ -50,6 +50,24 @@ my @dll_groups =
   "msvcr120_app",
  ],
  [
+  "ucrtbase",
+  "api-ms-win-crt-conio-l1-1-0",
+  "api-ms-win-crt-convert-l1-1-0",
+  "api-ms-win-crt-environment-l1-1-0",
+  "api-ms-win-crt-filesystem-l1-1-0",
+  "api-ms-win-crt-heap-l1-1-0",
+  "api-ms-win-crt-locale-l1-1-0",
+  "api-ms-win-crt-math-l1-1-0",
+  "api-ms-win-crt-multibyte-l1-1-0",
+  "api-ms-win-crt-private-l1-1-0",
+  "api-ms-win-crt-process-l1-1-0",
+  "api-ms-win-crt-runtime-l1-1-0",
+  "api-ms-win-crt-stdio-l1-1-0",
+  "api-ms-win-crt-string-l1-1-0",
+  "api-ms-win-crt-time-l1-1-0",
+  "api-ms-win-crt-utility-l1-1-0",
+ ],
+ [
   "msvcp120",
   "msvcp120_app",
  ],
@@ -359,7 +377,7 @@ sub update_spec_file($)
         if ($parent{callconv} ne "stub" || $parent{args})
         {
             my $callconv = $parent{callconv} ne "stub" ? $parent{callconv} :
-                           $parent{spec} =~ /msvc/ ? "cdecl" : "stdcall";  # hack
+                           $parent{spec} =~ /(msvc|ucrtbase)/ ? "cdecl" : "stdcall";  # hack
             $_ = sprintf "$descr{ordinal} %s %s%s", $callconv, $flags, $func;
 
             if ($parent{target} =~ /$group_head\./)  # use the same forward as parent if possible

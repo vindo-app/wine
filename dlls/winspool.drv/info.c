@@ -3452,6 +3452,14 @@ static void set_printer_2( HKEY key, const PRINTER_INFO_2W *pi )
     set_reg_DWORD( key, UntilTimeW, pi->UntilTime );
 }
 
+static BOOL set_printer_8( HKEY key, const PRINTER_INFO_8W *pi )
+{
+    if (!pi->pDevMode) return FALSE;
+
+    set_reg_devmode( key, Default_DevModeW, pi->pDevMode );
+    return TRUE;
+}
+
 static BOOL set_printer_9( HKEY key, const PRINTER_INFO_9W *pi )
 {
     if (!pi->pDevMode) return FALSE;
@@ -3484,7 +3492,12 @@ BOOL WINAPI SetPrinterW( HANDLE printer, DWORD level, LPBYTE data, DWORD command
         ret = TRUE;
         break;
     }
-
+    case 8:
+    {
+        PRINTER_INFO_8W *pi = (PRINTER_INFO_8W *)data;
+        ret = set_printer_8( key, pi );
+        break;
+    }
     case 9:
     {
         PRINTER_INFO_9W *pi = (PRINTER_INFO_9W *)data;
@@ -8431,6 +8444,11 @@ BOOL WINAPI ScheduleJob( HANDLE hPrinter, DWORD dwJobID )
             else if(!strncmpW(portname, FILE_Port, strlenW(FILE_Port)))
             {
                 ret = schedule_file(job->filename);
+            }
+            else if(isalpha(portname[0]) && portname[1] == ':')
+            {
+                TRACE("copying to %s\n", debugstr_w(portname));
+                ret = CopyFileW(job->filename, portname, FALSE);
             }
             else
             {

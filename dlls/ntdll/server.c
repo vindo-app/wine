@@ -83,6 +83,7 @@
 #include "ntdll_misc.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(server);
+WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
 /* Some versions of glibc don't define this */
 #ifndef SCM_RIGHTS
@@ -304,6 +305,14 @@ unsigned int wine_server_call( void *req_ptr )
     struct __server_request_info * const req = req_ptr;
     sigset_t old_set;
     unsigned int ret;
+
+    /* trigger write watches, otherwise read() might return EFAULT */
+    if (req->u.req.request_header.reply_size &&
+        !virtual_check_buffer_for_write( req->reply_data, req->u.req.request_header.reply_size ))
+    {
+        ret = STATUS_ACCESS_VIOLATION;
+        return ret;
+    }
 
     pthread_sigmask( SIG_BLOCK, &server_block_set, &old_set );
     ret = send_request( req );
@@ -915,6 +924,30 @@ int server_remove_fd_from_cache( HANDLE handle )
 
 
 /***********************************************************************
+ *           wine_server_close_fds_by_type
+ *
+ * Needed for a proper implementation of WSACleanup.
+ */
+void CDECL wine_server_close_fds_by_type( enum server_fd_type type )
+{
+    union fd_cache_entry cache;
+    unsigned int entry, idx;
+
+    for (entry = 0; entry < FD_CACHE_ENTRIES; entry++)
+    {
+        if (!fd_cache[entry]) continue;
+        for (idx = 0; idx < FD_CACHE_BLOCK_SIZE; idx++)
+        {
+            cache.data = interlocked_cmpxchg64( &fd_cache[entry][idx].data, 0, 0 );
+            if (cache.s.type != type || cache.s.fd == 0) continue;
+            if (interlocked_cmpxchg64( &fd_cache[entry][idx].data, 0, cache.data ) != cache.data) continue;
+            close( cache.s.fd - 1 );
+        }
+    }
+}
+
+
+/***********************************************************************
  *           server_get_unix_fd
  *
  * The returned unix_fd should be closed iff needs_close is non-zero.
@@ -968,6 +1001,87 @@ done:
     }
     if (!ret) *unix_fd = fd;
     return ret;
+}
+
+
+/***********************************************************************
+ *           server_get_shared_memory_fd
+ *
+ * Receive a file descriptor to a server shared memory block.
+ */
+static int server_get_shared_memory_fd( HANDLE thread, int *unix_fd )
+{
+    obj_handle_t dummy;
+    sigset_t sigset;
+    int ret;
+
+    server_enter_uninterrupted_section( &fd_cache_section, &sigset );
+
+    SERVER_START_REQ( get_shared_memory )
+    {
+        req->tid = HandleToULong(thread);
+        if (!(ret = wine_server_call( req )))
+        {
+            *unix_fd = receive_fd( &dummy );
+            if (*unix_fd == -1) ret = STATUS_NOT_SUPPORTED;
+        }
+    }
+    SERVER_END_REQ;
+
+    server_leave_uninterrupted_section( &fd_cache_section, &sigset );
+    return ret;
+}
+
+/* The shared memory wineserver communication is still highly experimental
+ * and might cause unexpected results when the client/server status gets
+ * out of synchronization. The feature will be disabled by default until it
+ * is tested a bit more. */
+static inline BOOL experimental_SHARED_MEMORY( void )
+{
+    static int enabled = -1;
+    if (enabled == -1)
+    {
+        const char *str = getenv( "STAGING_SHARED_MEMORY" );
+        enabled = str && (atoi(str) != 0);
+    }
+    return enabled;
+}
+
+
+/***********************************************************************
+ *           server_get_shared_memory
+ *
+ * Get address of a shared memory block.
+ */
+void *server_get_shared_memory( HANDLE thread )
+{
+    static shmglobal_t *shmglobal = (void *)-1;
+    void *mem = NULL;
+    int fd = -1;
+
+    if (!experimental_SHARED_MEMORY())
+        return NULL;
+
+    /* The global memory block is only requested once. No locking is
+     * required because this function is called very early during the
+     * process initialization for the first time. */
+    if (!thread && shmglobal != (void *)-1)
+        return shmglobal;
+
+    if (!server_get_shared_memory_fd( thread, &fd ))
+    {
+        SIZE_T size = thread ? sizeof(shmlocal_t) : sizeof(shmglobal_t);
+        virtual_map_shared_memory( fd, &mem, 0, &size, PAGE_READONLY );
+        close( fd );
+    }
+
+    if (!thread)
+    {
+        if (mem) WARN_(winediag)("Using shared memory wineserver communication\n");
+        shmglobal = mem;
+    }
+
+    return mem;
 }
 
 
@@ -1502,6 +1616,10 @@ size_t server_init_thread( void *entry_point )
         server_cpus       = reply->all_cpus;
     }
     SERVER_END_REQ;
+
+    /* initialize thread shared memory pointers */
+    NtCurrentTeb()->Reserved5[0] = server_get_shared_memory( 0 );
+    NtCurrentTeb()->Reserved5[1] = server_get_shared_memory( NtCurrentTeb()->ClientId.UniqueThread );
 
     is_wow64 = !is_win64 && (server_cpus & ((1 << CPU_x86_64) | (1 << CPU_ARM64))) != 0;
     ntdll_get_thread_data()->wow64_redir = is_wow64;

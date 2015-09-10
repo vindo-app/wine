@@ -23,6 +23,12 @@
 #include "config.h"
 #include "wine/port.h"
 
+/* The FreeBSD implementation to enumerate directory content is completely
+ * broken, which causes test failures in kernel32/file and ntdll/directory
+ * tests, and also causes bug 35397. Fallback to the POSIX implementation
+ * until this issue is fixed. */
+#undef HAVE_GETDIRENTRIES
+
 #include <assert.h>
 #include <sys/types.h>
 #ifdef HAVE_DIRENT_H
@@ -1201,17 +1207,17 @@ static DWORD WINAPI init_options( RTL_RUN_ONCE *once, void *param, void **contex
  *
  * Check if the specified file should be hidden based on its name and the show dot files option.
  */
-BOOL DIR_is_hidden_file( const UNICODE_STRING *name )
+BOOL DIR_is_hidden_file( const char *name )
 {
-    WCHAR *p, *end;
+    char *p, *end;
 
     RtlRunOnceExecuteOnce( &init_once, init_options, NULL, NULL );
 
     if (show_dot_files) return FALSE;
 
-    end = p = name->Buffer + name->Length/sizeof(WCHAR);
-    while (p > name->Buffer && IS_SEPARATOR(p[-1])) p--;
-    while (p > name->Buffer && !IS_SEPARATOR(p[-1])) p--;
+    end = p = (char *)name + strlen(name);
+    while (p > name && IS_SEPARATOR(p[-1])) p--;
+    while (p > name && !IS_SEPARATOR(p[-1])) p--;
     if (p == end || *p != '.') return FALSE;
     /* make sure it isn't '.' or '..' */
     if (p + 1 == end) return FALSE;
@@ -1426,9 +1432,6 @@ static union file_directory_info *append_entry( void *info_ptr, IO_STATUS_BLOCK 
         TRACE( "ignoring file %s\n", long_name );
         return NULL;
     }
-    if (!show_dot_files && long_name[0] == '.' && long_name[1] && (long_name[1] != '.' || long_name[2]))
-        attributes |= FILE_ATTRIBUTE_HIDDEN;
-
     total_len = dir_info_size( class, long_len );
     if (io->Information + total_len > max_length)
     {
@@ -2757,20 +2760,26 @@ static NTSTATUS get_dos_device( const WCHAR *name, UINT name_len, ANSI_STRING *u
 
 
 /* return the length of the DOS namespace prefix if any */
-static inline int get_dos_prefix_len( const UNICODE_STRING *name )
+static inline NTSTATUS get_dos_prefix_len( const UNICODE_STRING *name, int *prefix_len )
 {
     static const WCHAR nt_prefixW[] = {'\\','?','?','\\'};
     static const WCHAR dosdev_prefixW[] = {'\\','D','o','s','D','e','v','i','c','e','s','\\'};
 
-    if (name->Length > sizeof(nt_prefixW) &&
+    if (name->Length >= sizeof(nt_prefixW) &&
         !memcmp( name->Buffer, nt_prefixW, sizeof(nt_prefixW) ))
-        return sizeof(nt_prefixW) / sizeof(WCHAR);
+    {
+        *prefix_len = sizeof(nt_prefixW) / sizeof(WCHAR);
+        return (name->Length == sizeof(nt_prefixW)) ? STATUS_OBJECT_NAME_INVALID : STATUS_SUCCESS;
+    }
 
-    if (name->Length > sizeof(dosdev_prefixW) &&
+    if (name->Length >= sizeof(dosdev_prefixW) &&
         !memicmpW( name->Buffer, dosdev_prefixW, sizeof(dosdev_prefixW)/sizeof(WCHAR) ))
-        return sizeof(dosdev_prefixW) / sizeof(WCHAR);
+    {
+        *prefix_len = sizeof(dosdev_prefixW) / sizeof(WCHAR);
+        return (name->Length == sizeof(dosdev_prefixW)) ? STATUS_OBJECT_NAME_INVALID : STATUS_SUCCESS;
+    }
 
-    return 0;
+    return STATUS_BAD_DEVICE_TYPE;
 }
 
 
@@ -3110,6 +3119,7 @@ NTSTATUS CDECL wine_nt_to_unix_file_name( const UNICODE_STRING *nameW, ANSI_STRI
                                           UINT disposition, BOOLEAN check_case )
 {
     static const WCHAR unixW[] = {'u','n','i','x'};
+    static const WCHAR pipeW[] = {'p','i','p','e'};
     static const WCHAR invalid_charsW[] = { INVALID_NT_CHARS, 0 };
 
     NTSTATUS status = STATUS_SUCCESS;
@@ -3120,14 +3130,15 @@ NTSTATUS CDECL wine_nt_to_unix_file_name( const UNICODE_STRING *nameW, ANSI_STRI
     int pos, ret, name_len, unix_len, prefix_len, used_default;
     WCHAR prefix[MAX_DIR_ENTRY_LEN];
     BOOLEAN is_unix = FALSE;
+    BOOLEAN is_pipe = FALSE;
 
     name     = nameW->Buffer;
     name_len = nameW->Length / sizeof(WCHAR);
 
     if (!name_len || !IS_SEPARATOR(name[0])) return STATUS_OBJECT_PATH_SYNTAX_BAD;
 
-    if (!(pos = get_dos_prefix_len( nameW )))
-        return STATUS_BAD_DEVICE_TYPE;  /* no DOS prefix, assume NT native name */
+    if ((status = get_dos_prefix_len( nameW, &pos )))
+        return status;  /* no DOS prefix, assume NT native name */
 
     name += pos;
     name_len -= pos;
@@ -3151,13 +3162,17 @@ NTSTATUS CDECL wine_nt_to_unix_file_name( const UNICODE_STRING *nameW, ANSI_STRI
     name += prefix_len;
     name_len -= prefix_len;
 
-    /* check for invalid characters (all chars except 0 are valid for unix) */
-    is_unix = (prefix_len == 4 && !memcmp( prefix, unixW, sizeof(unixW) ));
-    if (is_unix)
+    /* check for invalid characters (all chars except 0 are valid for unix and pipes) */
+    if (prefix_len == 4)
+    {
+        is_unix = !memcmp( prefix, unixW, sizeof(unixW) );
+        is_pipe = !memcmp( prefix, pipeW, sizeof(pipeW) );
+    }
+    if (is_unix || is_pipe)
     {
         for (p = name; p < name + name_len; p++)
             if (!*p) return STATUS_OBJECT_NAME_INVALID;
-        check_case = TRUE;
+        check_case |= is_unix;
     }
     else
     {

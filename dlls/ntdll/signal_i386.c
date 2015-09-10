@@ -96,6 +96,14 @@ typedef struct
     BYTE Reserved4[96];
 } XMM_SAVE_AREA32;
 
+#include "pshpack1.h"
+struct idtr
+{
+    WORD  limit;
+    BYTE *base;
+};
+#include "poppack.h"
+
 /***********************************************************************
  * signal context platform-specific definitions
  */
@@ -1572,6 +1580,214 @@ static inline DWORD is_privileged_instr( CONTEXT *context )
     }
 }
 
+
+#ifdef EXAGEAR_COMPAT
+
+/***********************************************************************
+ *           INSTR_GetOperandAddr
+ *
+ * Return the address of an instruction operand (from the mod/rm byte).
+ */
+static BYTE *INSTR_GetOperandAddr( CONTEXT *context, const BYTE *instr,
+                                   int long_addr, int segprefix, int *len )
+{
+    int mod, rm, base = 0, index = 0, ss = 0, off;
+
+#define GET_VAL(val,type) \
+    { *val = *(type *)instr; instr += sizeof(type); *len += sizeof(type); }
+
+    *len = 0;
+    GET_VAL( &mod, BYTE );
+    rm = mod & 7;
+    mod >>= 6;
+
+    if (mod == 3)
+    {
+        switch(rm)
+        {
+        case 0: return (BYTE *)&context->Eax;
+        case 1: return (BYTE *)&context->Ecx;
+        case 2: return (BYTE *)&context->Edx;
+        case 3: return (BYTE *)&context->Ebx;
+        case 4: return (BYTE *)&context->Esp;
+        case 5: return (BYTE *)&context->Ebp;
+        case 6: return (BYTE *)&context->Esi;
+        case 7: return (BYTE *)&context->Edi;
+        }
+    }
+
+    if (long_addr)
+    {
+        if (rm == 4)
+        {
+            BYTE sib;
+            GET_VAL( &sib, BYTE );
+            rm = sib & 7;
+            ss = sib >> 6;
+            switch((sib >> 3) & 7)
+            {
+            case 0: index = context->Eax; break;
+            case 1: index = context->Ecx; break;
+            case 2: index = context->Edx; break;
+            case 3: index = context->Ebx; break;
+            case 4: index = 0; break;
+            case 5: index = context->Ebp; break;
+            case 6: index = context->Esi; break;
+            case 7: index = context->Edi; break;
+            }
+        }
+
+        switch(rm)
+        {
+        case 0: base = context->Eax; break;
+        case 1: base = context->Ecx; break;
+        case 2: base = context->Edx; break;
+        case 3: base = context->Ebx; break;
+        case 4: base = context->Esp; break;
+        case 5: base = context->Ebp; break;
+        case 6: base = context->Esi; break;
+        case 7: base = context->Edi; break;
+        }
+        switch (mod)
+        {
+        case 0:
+            if (rm == 5)  /* special case: ds:(disp32) */
+            {
+                GET_VAL( &base, DWORD );
+            }
+            break;
+
+        case 1:  /* 8-bit disp */
+            GET_VAL( &off, BYTE );
+            base += (signed char)off;
+            break;
+
+        case 2:  /* 32-bit disp */
+            GET_VAL( &off, DWORD );
+            base += (signed long)off;
+            break;
+        }
+    }
+    else  /* short address */
+    {
+        switch(rm)
+        {
+        case 0:  /* ds:(bx,si) */
+            base = LOWORD(context->Ebx) + LOWORD(context->Esi);
+            break;
+        case 1:  /* ds:(bx,di) */
+            base = LOWORD(context->Ebx) + LOWORD(context->Edi);
+            break;
+        case 2:  /* ss:(bp,si) */
+            base = LOWORD(context->Ebp) + LOWORD(context->Esi);
+            break;
+        case 3:  /* ss:(bp,di) */
+            base = LOWORD(context->Ebp) + LOWORD(context->Edi);
+            break;
+        case 4:  /* ds:(si) */
+            base = LOWORD(context->Esi);
+            break;
+        case 5:  /* ds:(di) */
+            base = LOWORD(context->Edi);
+            break;
+        case 6:  /* ss:(bp) */
+            base = LOWORD(context->Ebp);
+            break;
+        case 7:  /* ds:(bx) */
+            base = LOWORD(context->Ebx);
+            break;
+        }
+
+        switch(mod)
+        {
+        case 0:
+            if (rm == 6)  /* special case: ds:(disp16) */
+            {
+                GET_VAL( &base, WORD );
+            }
+            break;
+
+        case 1:  /* 8-bit disp */
+            GET_VAL( &off, BYTE );
+            base += (signed char)off;
+            break;
+
+        case 2:  /* 16-bit disp */
+            GET_VAL( &off, WORD );
+            base += (signed short)off;
+            break;
+        }
+        base &= 0xffff;
+    }
+    /* FIXME: we assume that all segments have a base of 0 */
+    return (BYTE *)(base + (index << ss));
+#undef GET_VAL
+}
+
+
+/***********************************************************************
+ *           check_invalid_instr
+ *
+ * Support for instructions not implemented by Exagear.
+ */
+static inline BOOL check_invalid_instr( CONTEXT *context )
+{
+    const BYTE *instr;
+    unsigned int prefix_count = 0;
+    int len, long_addr = 1;
+
+    if (!wine_ldt_is_system( context->SegCs )) return FALSE;
+    instr = (BYTE *)context->Eip;
+
+    for (;;) switch (*instr)
+    {
+    /* instruction prefixes */
+    case 0x2e:  /* %cs: */
+    case 0x36:  /* %ss: */
+    case 0x3e:  /* %ds: */
+    case 0x26:  /* %es: */
+    case 0x64:  /* %fs: */
+    case 0x65:  /* %gs: */
+    case 0x66:  /* opcode size */
+    case 0x67:  /* addr size */
+    case 0xf0:  /* lock */
+    case 0xf2:  /* repne */
+    case 0xf3:  /* repe */
+        if (++prefix_count >= 15) return FALSE;
+        if (*instr == 0x67) long_addr = !long_addr; /* addr size */
+        instr++;
+        continue;
+    case 0x0f: /* extended instruction */
+        switch (instr[1])
+        {
+        case 0x01:
+            if (((instr[2] >> 3) & 7) == 1) /* sidt m */
+            {
+                struct idtr ret;
+                BYTE *addr;
+
+                if ((instr[2] >> 6) == 3) return FALSE; /* loading to register not allowed */
+                addr = INSTR_GetOperandAddr( context, instr + 2, long_addr, 0, &len );
+
+                /* fake IDT structure */
+                ret.limit = 0xfff;
+                ret.base  = (void *)0xff000000;
+                memcpy(addr, &ret, sizeof(ret));
+
+                context->Eip += prefix_count + len + 2;
+                return TRUE;
+            }
+            break;
+        }
+        return FALSE;
+    default:
+        return FALSE;
+    }
+}
+
+#endif /* EXAGEAR_COMPAT */
+
+
 /***********************************************************************
  *           check_invalid_gs
  *
@@ -1669,13 +1885,13 @@ static BOOL check_atl_thunk( EXCEPTION_RECORD *rec, CONTEXT *context )
     union atl_thunk thunk_copy;
     SIZE_T thunk_len;
 
-    thunk_len = virtual_uninterrupted_read_memory( thunk, &thunk_copy, sizeof(*thunk) );
+    thunk_len = wine_uninterrupted_read_memory( thunk, &thunk_copy, sizeof(*thunk) );
     if (!thunk_len) return FALSE;
 
     if (thunk_len >= sizeof(thunk_copy.t1) && thunk_copy.t1.movl == 0x042444c7 &&
                                               thunk_copy.t1.jmp == 0xe9)
     {
-        if (virtual_uninterrupted_write_memory( (DWORD *)context->Esp + 1,
+        if (wine_uninterrupted_write_memory( (DWORD *)context->Esp + 1,
             &thunk_copy.t1.this, sizeof(DWORD) ) == sizeof(DWORD))
         {
             context->Eip = (DWORD_PTR)(&thunk->t1.func + 1) + thunk_copy.t1.func;
@@ -1719,11 +1935,11 @@ static BOOL check_atl_thunk( EXCEPTION_RECORD *rec, CONTEXT *context )
                                                    thunk_copy.t5.inst2 == 0x0460)
     {
         DWORD func, stack[2];
-        if (virtual_uninterrupted_read_memory( (DWORD *)context->Esp,
+        if (wine_uninterrupted_read_memory( (DWORD *)context->Esp,
             stack, sizeof(stack) ) == sizeof(stack) &&
-            virtual_uninterrupted_read_memory( (DWORD *)stack[1] + 1,
+            wine_uninterrupted_read_memory( (DWORD *)stack[1] + 1,
             &func, sizeof(DWORD) ) == sizeof(DWORD) &&
-            virtual_uninterrupted_write_memory( (DWORD *)context->Esp + 1,
+            wine_uninterrupted_write_memory( (DWORD *)context->Esp + 1,
             &stack[0], sizeof(stack[0]) ) == sizeof(stack[0]))
         {
             context->Ecx = stack[0];
@@ -1901,6 +2117,14 @@ static void WINAPI raise_segv_exception( EXCEPTION_RECORD *rec, CONTEXT *context
 
     switch(rec->ExceptionCode)
     {
+#ifdef EXAGEAR_COMPAT
+    case EXCEPTION_ILLEGAL_INSTRUCTION:
+        {
+            if (check_invalid_instr( context ))
+                goto done;
+        }
+        break;
+#endif
     case EXCEPTION_ACCESS_VIOLATION:
         if (rec->NumberParameters == 2)
         {
@@ -2033,6 +2257,31 @@ static void usr2_handler( int signal, siginfo_t *siginfo, void *sigcontext )
 }
 #endif /* __HAVE_VM86 */
 
+
+/**********************************************************************
+ *    segv_handler_early
+ *
+ * Handler for SIGSEGV and related errors. Used only during the initialization
+ * of the process to handle virtual faults.
+ */
+static void segv_handler_early( int signal, siginfo_t *siginfo, void *sigcontext )
+{
+    WORD fs, gs;
+    ucontext_t *context = sigcontext;
+    init_handler( sigcontext, &fs, &gs );
+
+    switch(get_trap_code(context))
+    {
+    case TRAP_x86_PAGEFLT:  /* Page fault */
+        if (!virtual_handle_fault( siginfo->si_addr, (get_error_code(context) >> 1) & 0x09, TRUE ))
+            return;
+        /* fall-through */
+    default:
+        WINE_ERR( "Got unexpected trap %d during process initialization\n", get_trap_code(context) );
+        abort_thread(1);
+        break;
+    }
+}
 
 /**********************************************************************
  *		segv_handler
@@ -2367,11 +2616,17 @@ void signal_free_thread( TEB *teb )
     SIZE_T size;
     struct ntdll_thread_data *thread_data = (struct ntdll_thread_data *)teb->SpareBytes1;
 
-    if (thread_data) wine_ldt_free_fs( thread_data->fs );
+    wine_ldt_free_fs( thread_data->fs );
     if (teb->DeallocationStack)
     {
         size = 0;
         NtFreeVirtualMemory( GetCurrentProcess(), &teb->DeallocationStack, &size, MEM_RELEASE );
+    }
+    if ((ULONG_PTR)thread_data->pthread_stack & 1)
+    {
+        void *addr = (void *)((ULONG_PTR)thread_data->pthread_stack & ~1);
+        size = 0;
+        NtFreeVirtualMemory( GetCurrentProcess(), &addr, &size, MEM_RELEASE );
     }
     size = 0;
     NtFreeVirtualMemory( NtCurrentProcess(), (void **)&teb, &size, MEM_RELEASE );
@@ -2466,6 +2721,34 @@ void signal_init_process(void)
     exit(1);
 }
 
+/**********************************************************************
+ *    signal_init_early
+ */
+void signal_init_early(void)
+{
+    struct sigaction sig_act;
+
+    sig_act.sa_mask = server_block_set;
+    sig_act.sa_flags = SA_SIGINFO | SA_RESTART;
+#ifdef SA_ONSTACK
+    sig_act.sa_flags |= SA_ONSTACK;
+#endif
+#ifdef __ANDROID__
+    sig_act.sa_flags |= SA_RESTORER;
+    sig_act.sa_restorer = rt_sigreturn;
+#endif
+    sig_act.sa_sigaction = segv_handler_early;
+    if (sigaction( SIGSEGV, &sig_act, NULL ) == -1) goto error;
+    if (sigaction( SIGILL, &sig_act, NULL ) == -1) goto error;
+#ifdef SIGBUS
+    if (sigaction( SIGBUS, &sig_act, NULL ) == -1) goto error;
+#endif
+    return;
+
+error:
+    perror("sigaction");
+    exit(1);
+}
 
 #ifdef __HAVE_VM86
 /**********************************************************************

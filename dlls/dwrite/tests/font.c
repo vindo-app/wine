@@ -1307,12 +1307,11 @@ if (0) /* crashes on native */
 
     /* try mismatching face type, the one that's not supported */
     hr = IDWriteFactory_CreateFontFace(factory, DWRITE_FONT_FACE_TYPE_CFF, 1, &file, 0, DWRITE_FONT_SIMULATIONS_NONE, &fontface);
-todo_wine
     ok(hr == DWRITE_E_FILEFORMAT, "got 0x%08x\n", hr);
 
     hr = IDWriteFactory_CreateFontFace(factory, DWRITE_FONT_FACE_TYPE_TRUETYPE_COLLECTION, 1, &file, 0,
         DWRITE_FONT_SIMULATIONS_NONE, &fontface);
-    ok(hr == E_FAIL, "got 0x%08x\n", hr);
+    ok(hr == DWRITE_E_FILEFORMAT || broken(hr == E_FAIL) /* < win10 */, "got 0x%08x\n", hr);
 
     hr = IDWriteFactory_CreateFontFace(factory, DWRITE_FONT_FACE_TYPE_RAW_CFF, 1, &file, 0, DWRITE_FONT_SIMULATIONS_NONE, &fontface);
 todo_wine
@@ -1328,7 +1327,14 @@ todo_wine
     ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
 
     hr = IDWriteFactory_CreateFontFace(factory, DWRITE_FONT_FACE_TYPE_UNKNOWN, 1, &file, 0, DWRITE_FONT_SIMULATIONS_NONE, &fontface);
-    ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+todo_wine
+    ok(hr == S_OK || broken(hr == E_INVALIDARG) /* < win10 */, "got 0x%08x\n", hr);
+    if (hr == S_OK) {
+        ok(fontface != NULL, "got %p\n", fontface);
+        face_type = IDWriteFontFace_GetType(fontface);
+        ok(face_type == DWRITE_FONT_FACE_TYPE_TRUETYPE, "got %d\n", face_type);
+        IDWriteFontFace_Release(fontface);
+    }
 
     IDWriteFontFile_Release(file);
     IDWriteFactory_Release(factory);
@@ -1954,8 +1960,10 @@ static void test_CreateCustomFontFileReference(void)
     factory = create_factory();
     factory2 = create_factory();
 
+if (0) { /* crashes on win10 */
     hr = IDWriteFactory_RegisterFontFileLoader(factory, NULL);
     ok(hr == E_INVALIDARG, "got 0x%08x\n", hr);
+}
     hr = IDWriteFactory_RegisterFontFileLoader(factory, &floader);
     ok(hr == S_OK, "got 0x%08x\n", hr);
     hr = IDWriteFactory_RegisterFontFileLoader(factory, &floader2);
@@ -3094,6 +3102,7 @@ static void test_GetDesignGlyphAdvances(void)
         advance = 0;
         hr = IDWriteFontFace1_GetDesignGlyphAdvances(fontface1, 1, &index, &advance, TRUE);
         ok(hr == S_OK, "got 0x%08x\n", hr);
+    todo_wine
         ok(advance == 2048, "got %i\n", advance);
 
         IDWriteFontFace1_Release(fontface1);
@@ -4215,12 +4224,7 @@ static void test_GetGdiCompatibleGlyphAdvances(void)
 
         /* advance is in design units */
         advance = (int)floorf(emsize * advance / fm.designUnitsPerEm + 0.5f);
-
-        /* allow 1 pixel difference for large sizes, for Tahoma this happens for 16 sizes in [1, 2048] range */
-        if (emsize > 150.0)
-            ok((advance - gdi_advance) <= 1, "%.0f: got advance %d, expected %d\n", emsize, advance, gdi_advance);
-        else
-            ok(gdi_advance == advance, "%.0f: got advance %d, expected %d\n", emsize, advance, gdi_advance);
+        ok((advance - gdi_advance) <= 2, "%.0f: got advance %d, expected %d\n", emsize, advance, gdi_advance);
     }
 
     DeleteObject(hdc);

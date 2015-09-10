@@ -65,6 +65,7 @@
 WINE_DEFAULT_DEBUG_CHANNEL(process);
 WINE_DECLARE_DEBUG_CHANNEL(file);
 WINE_DECLARE_DEBUG_CHANNEL(relay);
+WINE_DECLARE_DEBUG_CHANNEL(winediag);
 
 #ifdef __APPLE__
 extern char **__wine_get_main_environment(void);
@@ -259,9 +260,17 @@ static HANDLE open_exe_file( const WCHAR *name, struct binary_info *binary_info 
 static BOOL find_exe_file( const WCHAR *name, WCHAR *buffer, int buflen,
                            HANDLE *handle, struct binary_info *binary_info )
 {
+    WCHAR cur_dir[MAX_PATH];
+
     TRACE("looking for %s\n", debugstr_w(name) );
 
-    if (!SearchPathW( NULL, name, exeW, buflen, buffer, NULL ) &&
+    /* The working directory takes precedence over other locations for CreateProcess unless the
+     * 'NoDefaultCurrentDirectoryInExePath' environment variable is set (and the executable name
+     * does not contain a backslash). */
+    if ((NeedCurrentDirectoryForExePathW( name ) && GetCurrentDirectoryW( MAX_PATH, cur_dir) &&
+         !SearchPathW( cur_dir, name, exeW, buflen, buffer, NULL )) &&
+        /* not found in the working directory, try the system search path */
+        !SearchPathW( NULL, name, exeW, buflen, buffer, NULL ) &&
         /* no builtin found, try native without extension in case it is a Unix app */
         !SearchPathW( NULL, name, NULL, buflen, buffer, NULL )) return FALSE;
 
@@ -1079,16 +1088,11 @@ static inline DWORD call_process_entry( PEB *peb, LPTHREAD_START_ROUTINE entry )
  *
  * Startup routine of a new process. Runs on the new process stack.
  */
-static DWORD WINAPI start_process( PEB *peb )
+static DWORD WINAPI start_process( LPTHREAD_START_ROUTINE entry )
 {
-    IMAGE_NT_HEADERS *nt;
-    LPTHREAD_START_ROUTINE entry;
+    PEB *peb = NtCurrentTeb()->Peb;
 
-    nt = RtlImageNtHeader( peb->ImageBaseAddress );
-    entry = (LPTHREAD_START_ROUTINE)((char *)peb->ImageBaseAddress +
-                                     nt->OptionalHeader.AddressOfEntryPoint);
-
-    if (!nt->OptionalHeader.AddressOfEntryPoint)
+    if (!entry)
     {
         ERR( "%s doesn't have an entry point, it cannot be executed\n",
              debugstr_w(peb->ProcessParameters->ImagePathName.Buffer) );
@@ -1098,6 +1102,15 @@ static DWORD WINAPI start_process( PEB *peb )
     if (TRACE_ON(relay))
         DPRINTF( "%04x:Starting process %s (entryproc=%p)\n", GetCurrentThreadId(),
                  debugstr_w(peb->ProcessParameters->ImagePathName.Buffer), entry );
+
+    /* Wine developers don't like it, when bug are reported with Wine versions containing our patches. */
+    if (CreateEventA(0, 0, 0, "__winestaging_warn_event") && GetLastError() != ERROR_ALREADY_EXISTS)
+    {
+        FIXME_(winediag)("Wine Staging %s is a testing version containing experimental patches.\n", wine_get_version());
+        FIXME_(winediag)("Please report bugs at http://bugs.wine-staging.com (instead of winehq.org).\n");
+    }
+    else
+        WARN_(winediag)("Wine Staging %s is a testing version containing experimental patches.\n", wine_get_version());
 
     SetLastError( 0 );  /* clear error code */
     if (peb->BeingDebugged) DbgBreakPoint();
@@ -1616,7 +1629,7 @@ static startup_info_t *create_startup_info( LPCWSTR filename, LPCWSTR cmdline,
     const RTL_USER_PROCESS_PARAMETERS *cur_params;
     const WCHAR *title;
     startup_info_t *info;
-    DWORD size;
+    DWORD size, cur_dir_length;
     void *ptr;
     UNICODE_STRING newdir;
     WCHAR imagepath[MAX_PATH];
@@ -1630,24 +1643,27 @@ static startup_info_t *create_startup_info( LPCWSTR filename, LPCWSTR cmdline,
     cur_params = NtCurrentTeb()->Peb->ProcessParameters;
 
     newdir.Buffer = NULL;
-    if (cur_dir)
+    if (cur_dir && RtlDosPathNameToNtPathName_U( cur_dir, &newdir, NULL, NULL ))
     {
-        if (RtlDosPathNameToNtPathName_U( cur_dir, &newdir, NULL, NULL ))
-            cur_dir = newdir.Buffer + 4;  /* skip \??\ prefix */
-        else
-            cur_dir = NULL;
+        cur_dir = newdir.Buffer + 4;  /* skip \??\ prefix */
+        cur_dir_length = newdir.Length - 4 * sizeof(WCHAR);
     }
-    if (!cur_dir)
+    else if (NtCurrentTeb()->Tib.SubSystemTib)  /* FIXME: hack */
     {
-        if (NtCurrentTeb()->Tib.SubSystemTib)  /* FIXME: hack */
-            cur_dir = ((WIN16_SUBSYSTEM_TIB *)NtCurrentTeb()->Tib.SubSystemTib)->curdir.DosPath.Buffer;
-        else
-            cur_dir = cur_params->CurrentDirectory.DosPath.Buffer;
+        const UNICODE_STRING *dir = &((WIN16_SUBSYSTEM_TIB *)NtCurrentTeb()->Tib.SubSystemTib)->curdir.DosPath;
+        cur_dir = dir->Buffer;
+        cur_dir_length = dir->Length;
+    }
+    else
+    {
+        const UNICODE_STRING *dir = &cur_params->CurrentDirectory.DosPath;
+        cur_dir = dir->Buffer;
+        cur_dir_length = dir->Length;
     }
     title = startup->lpTitle ? startup->lpTitle : imagepath;
 
     size = sizeof(*info);
-    size += strlenW( cur_dir ) * sizeof(WCHAR);
+    size += cur_dir_length;
     size += cur_params->DllPath.Length;
     size += strlenW( imagepath ) * sizeof(WCHAR);
     size += strlenW( cmdline ) * sizeof(WCHAR);
@@ -1704,7 +1720,9 @@ static startup_info_t *create_startup_info( LPCWSTR filename, LPCWSTR cmdline,
     info->show      = startup->wShowWindow;
 
     ptr = info + 1;
-    info->curdir_len = append_string( &ptr, cur_dir );
+    info->curdir_len = cur_dir_length;
+    memcpy( ptr, cur_dir, cur_dir_length );
+    ptr = (char *)ptr + cur_dir_length;
     info->dllpath_len = cur_params->DllPath.Length;
     memcpy( ptr, cur_params->DllPath.Buffer, cur_params->DllPath.Length );
     ptr = (char *)ptr + cur_params->DllPath.Length;
@@ -1923,6 +1941,70 @@ static pid_t exec_loader( LPCWSTR cmd_line, unsigned int flags, int socketfd,
     return pid;
 }
 
+/* creates a struct security_descriptor and contained information in one contiguous piece of memory */
+static NTSTATUS create_struct_sd(PSECURITY_DESCRIPTOR nt_sd, struct security_descriptor **server_sd,
+                                 data_size_t *server_sd_len)
+{
+    unsigned int len;
+    PSID owner, group;
+    ACL *dacl, *sacl;
+    BOOLEAN owner_present, group_present, dacl_present, sacl_present;
+    BOOLEAN defaulted;
+    NTSTATUS status;
+    unsigned char *ptr;
+
+    if (!nt_sd)
+    {
+        *server_sd = NULL;
+        *server_sd_len = 0;
+        return STATUS_SUCCESS;
+    }
+
+    len = sizeof(struct security_descriptor);
+
+    status = RtlGetOwnerSecurityDescriptor(nt_sd, &owner, &owner_present);
+    if (status != STATUS_SUCCESS) return status;
+    status = RtlGetGroupSecurityDescriptor(nt_sd, &group, &group_present);
+    if (status != STATUS_SUCCESS) return status;
+    status = RtlGetSaclSecurityDescriptor(nt_sd, &sacl_present, &sacl, &defaulted);
+    if (status != STATUS_SUCCESS) return status;
+    status = RtlGetDaclSecurityDescriptor(nt_sd, &dacl_present, &dacl, &defaulted);
+    if (status != STATUS_SUCCESS) return status;
+
+    if (owner_present)
+        len += RtlLengthSid(owner);
+    if (group_present)
+        len += RtlLengthSid(group);
+    if (sacl_present && sacl)
+        len += sacl->AclSize;
+    if (dacl_present && dacl)
+        len += dacl->AclSize;
+
+    /* fix alignment for the Unicode name that follows the structure */
+    len = (len + sizeof(WCHAR) - 1) & ~(sizeof(WCHAR) - 1);
+    *server_sd = RtlAllocateHeap(GetProcessHeap(), 0, len);
+    if (!*server_sd) return STATUS_NO_MEMORY;
+
+    (*server_sd)->control = ((SECURITY_DESCRIPTOR *)nt_sd)->Control & ~SE_SELF_RELATIVE;
+    (*server_sd)->owner_len = owner_present ? RtlLengthSid(owner) : 0;
+    (*server_sd)->group_len = group_present ? RtlLengthSid(group) : 0;
+    (*server_sd)->sacl_len = (sacl_present && sacl) ? sacl->AclSize : 0;
+    (*server_sd)->dacl_len = (dacl_present && dacl) ? dacl->AclSize : 0;
+
+    ptr = (unsigned char *)(*server_sd + 1);
+    memcpy(ptr, owner, (*server_sd)->owner_len);
+    ptr += (*server_sd)->owner_len;
+    memcpy(ptr, group, (*server_sd)->group_len);
+    ptr += (*server_sd)->group_len;
+    memcpy(ptr, sacl, (*server_sd)->sacl_len);
+    ptr += (*server_sd)->sacl_len;
+    memcpy(ptr, dacl, (*server_sd)->dacl_len);
+
+    *server_sd_len = len;
+
+    return STATUS_SUCCESS;
+}
+
 /***********************************************************************
  *           create_process
  *
@@ -1946,6 +2028,8 @@ static BOOL create_process( HANDLE hFile, LPCWSTR filename, LPWSTR cmd_line, LPW
     int socketfd[2], stdin_fd = -1, stdout_fd = -1;
     pid_t pid;
     int err, cpu;
+    struct security_descriptor *process_sd = NULL, *thread_sd = NULL;
+    data_size_t process_sd_size = 0, thread_sd_size = 0;
 
     if ((cpu = get_process_cpu( filename, binary_info )) == -1)
     {
@@ -2000,12 +2084,41 @@ static BOOL create_process( HANDLE hFile, LPCWSTR filename, LPWSTR cmd_line, LPW
         return FALSE;
     }
 
+    if (psa && (psa->nLength >= sizeof(*psa)))
+    {
+        status = create_struct_sd( psa->lpSecurityDescriptor, &process_sd, &process_sd_size );
+        if (status != STATUS_SUCCESS)
+        {
+            close( socketfd[0] );
+            close( socketfd[1] );
+            WARN( "Invalid process security descriptor: Status %x\n", status );
+            SetLastError( RtlNtStatusToDosError(status) );
+            return FALSE;
+        }
+    }
+
+    if (tsa && (tsa->nLength >= sizeof(*tsa)))
+    {
+        status = create_struct_sd( tsa->lpSecurityDescriptor, &thread_sd, &thread_sd_size );
+        if (status != STATUS_SUCCESS)
+        {
+            RtlFreeHeap( GetProcessHeap(), 0, process_sd );
+            close( socketfd[0] );
+            close( socketfd[1] );
+            WARN( "Invalid thread security descriptor: Status %x\n", status );
+            SetLastError( RtlNtStatusToDosError(status) );
+            return FALSE;
+        }
+    }
+
     RtlAcquirePebLock();
 
     if (!(startup_info = create_startup_info( filename, cmd_line, cur_dir, env, flags, startup,
                                               &startup_info_size )))
     {
         RtlReleasePebLock();
+        RtlFreeHeap( GetProcessHeap(), 0, process_sd );
+        RtlFreeHeap( GetProcessHeap(), 0, thread_sd );
         close( socketfd[0] );
         close( socketfd[1] );
         return FALSE;
@@ -2042,9 +2155,13 @@ static BOOL create_process( HANDLE hFile, LPCWSTR filename, LPWSTR cmd_line, LPW
         req->thread_attr    = (tsa && (tsa->nLength >= sizeof(*tsa)) && tsa->bInheritHandle) ? OBJ_INHERIT : 0;
         req->cpu            = cpu;
         req->info_size      = startup_info_size;
+        req->env_size       = (env_end - env) * sizeof(WCHAR);
+        req->process_sd_size = process_sd_size;
 
         wine_server_add_data( req, startup_info, startup_info_size );
         wine_server_add_data( req, env, (env_end - env) * sizeof(WCHAR) );
+        wine_server_add_data( req, process_sd, process_sd_size );
+        wine_server_add_data( req, thread_sd, thread_sd_size );
         if (!(status = wine_server_call( req )))
         {
             info->dwProcessId = (DWORD)reply->pid;
@@ -2057,6 +2174,9 @@ static BOOL create_process( HANDLE hFile, LPCWSTR filename, LPWSTR cmd_line, LPW
     SERVER_END_REQ;
 
     RtlReleasePebLock();
+    RtlFreeHeap( GetProcessHeap(), 0, process_sd );
+    RtlFreeHeap( GetProcessHeap(), 0, thread_sd );
+
     if (status)
     {
         switch (status)
@@ -2174,13 +2294,17 @@ static BOOL create_cmd_process( LPCWSTR filename, LPWSTR cmd_line, LPVOID env, L
 
 {
     static const WCHAR comspecW[] = {'C','O','M','S','P','E','C',0};
+    static const WCHAR cmdW[] = {'\\','c','m','d','.','e','x','e',0};
     static const WCHAR slashcW[] = {' ','/','c',' ',0};
     WCHAR comspec[MAX_PATH];
     WCHAR *newcmdline;
     BOOL ret;
 
     if (!GetEnvironmentVariableW( comspecW, comspec, sizeof(comspec)/sizeof(WCHAR) ))
-        return FALSE;
+    {
+        GetSystemDirectoryW( comspec, (sizeof(comspec) - sizeof(cmdW))/sizeof(WCHAR) );
+        strcatW( comspec, cmdW );
+    }
     if (!(newcmdline = HeapAlloc( GetProcessHeap(), 0,
                                   (strlenW(comspec) + 4 + strlenW(cmd_line) + 1) * sizeof(WCHAR))))
         return FALSE;
@@ -3836,8 +3960,18 @@ BOOL WINAPI GetLogicalProcessorInformation(PSYSTEM_LOGICAL_PROCESSOR_INFORMATION
 BOOL WINAPI GetLogicalProcessorInformationEx(LOGICAL_PROCESSOR_RELATIONSHIP relationship, PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX buffer, PDWORD pBufLen)
 {
     FIXME("(%u,%p,%p): stub\n", relationship, buffer, pBufLen);
-    SetLastError(ERROR_CALL_NOT_IMPLEMENTED);
-    return FALSE;
+
+    if (!pBufLen)
+    {
+        SetLastError(ERROR_INVALID_PARAMETER);
+        return FALSE;
+    }
+
+    /* MSDN says '[...] at least one SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX
+     * structure is written to the output buffer.' - don't be surprised if this
+     * stub doesn't work always. */
+    *pBufLen = 0;
+    return TRUE;
 }
 
 /***********************************************************************

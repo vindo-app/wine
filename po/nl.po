@@ -142,7 +142,7 @@ msgstr "&Installeren"
 #: comctl32.rc:71 comdlg32.rc:170 comdlg32.rc:192 comdlg32.rc:210
 #: comdlg32.rc:232 comdlg32.rc:262 comdlg32.rc:305 comdlg32.rc:327
 #: comdlg32.rc:347 comdlg32.rc:359 comdlg32.rc:398 comdlg32.rc:452
-#: comdlg32.rc:477 comdlg32.rc:495 credui.rc:53 cryptui.rc:264 cryptui.rc:276
+#: comdlg32.rc:477 comdlg32.rc:500 credui.rc:53 cryptui.rc:264 cryptui.rc:276
 #: cryptui.rc:366 dinput.rc:47 ieframe.rc:97 inetcpl.rc:81 localui.rc:45
 #: localui.rc:58 mpr.rc:50 msacm32.rc:54 mshtml.rc:48 mshtml.rc:58
 #: msvfw32.rc:37 oledlg.rc:61 oledlg.rc:93 serialui.rc:42 setupapi.rc:42
@@ -350,7 +350,7 @@ msgstr "&Reset"
 
 #: comctl32.rc:86 comdlg32.rc:171 comdlg32.rc:193 comdlg32.rc:264
 #: comdlg32.rc:328 comdlg32.rc:348 comdlg32.rc:360 comdlg32.rc:478
-#: comdlg32.rc:496 ieframe.rc:58 msacm32.rc:52 oledlg.rc:94 shell32.rc:128
+#: comdlg32.rc:501 ieframe.rc:58 msacm32.rc:52 oledlg.rc:94 shell32.rc:128
 #: clock.rc:44 notepad.rc:60 notepad.rc:119 oleview.rc:72 progman.rc:55
 #: progman.rc:108 progman.rc:126 progman.rc:144 progman.rc:160 progman.rc:184
 #: progman.rc:202 progman.rc:219 regedit.rc:79 taskmgr.rc:87 winefile.rc:82
@@ -14004,7 +14004,7 @@ msgstr ""
 "Database</a> naar tips voor dit programma.\n"
 "\n"
 "Als dit probleem niet optreedt onder Windows en nog niet is gerapporteerd, "
-"dan kunt u <a href=\"http://wiki.winehq.org/Bugs\">een bug rapporteren</a>."
+"dan kunt u <a href=\"http://bugs.wine-staging.com\">een bug rapporteren</a>."
 
 #: winedbg.rc:61
 msgid "Show &Details"
@@ -14018,13 +14018,13 @@ msgstr "Programmafout details"
 msgid ""
 "If this problem is not present under Windows and has not been reported yet, "
 "you can save the detailed information to a file using the \"Save As\" "
-"button, then <a href=\"http://wiki.winehq.org/Bugs\">file a bug report</a> "
+"button, then <a href=\"http://bugs.wine-staging.com\">file a bug report</a> "
 "and attach that file to the report."
 msgstr ""
 "Indien dit probleem zich niet voordoet onder Windows en het probleem is nog "
 "niet gerapporteerd, dan kunt U gedetailleerde informatie in een bestand "
 "opslaan met de \"Opslaan als\" knop. Dit bestand kunt U via <a href=\"http://"
-"wiki.winehq.org/Bugs\">file a bug report</a> versturen."
+"bugs.wine-staging.com\">file a bug report</a> versturen."
 
 #: winedbg.rc:38
 msgid "Wine program crash"

@@ -381,12 +381,13 @@
 @ stdcall SetupDiRegisterDeviceInfo(ptr ptr long ptr ptr ptr)
 @ stdcall SetupDiRemoveDevice(ptr ptr)
 @ stub SetupDiRemoveDeviceInterface
+@ stdcall SetupDiSelectBestCompatDrv(ptr ptr)
 @ stub SetupDiSelectDevice
 @ stub SetupDiSelectOEMDrv
 @ stdcall SetupDiSetClassInstallParamsA(ptr ptr ptr long)
 @ stdcall SetupDiSetClassInstallParamsW(ptr ptr ptr long)
 @ stdcall SetupDiSetDeviceInstallParamsA(ptr ptr ptr)
-@ stub SetupDiSetDeviceInstallParamsW
+@ stdcall SetupDiSetDeviceInstallParamsW(ptr ptr ptr)
 @ stdcall SetupDiSetDeviceRegistryPropertyA(ptr ptr long ptr ptr)
 @ stdcall SetupDiSetDeviceRegistryPropertyW(ptr ptr long ptr ptr)
 @ stub SetupDiSetDriverInstallParamsA

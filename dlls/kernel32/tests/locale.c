@@ -1759,13 +1759,13 @@ static void test_CompareStringA(void)
     todo_wine ok(ret != CSTR_EQUAL, "\\2 vs \\1 expected unequal\n");
 
     ret = CompareStringA(lcid, NORM_IGNORECASE | LOCALE_USE_CP_ACP, "#", -1, ".", -1);
-    todo_wine ok(ret == CSTR_LESS_THAN, "\"#\" vs \".\" expected CSTR_LESS_THAN, got %d\n", ret);
+    ok(ret == CSTR_LESS_THAN, "\"#\" vs \".\" expected CSTR_LESS_THAN, got %d\n", ret);
 
     ret = CompareStringA(lcid, NORM_IGNORECASE, "_", -1, ".", -1);
-    todo_wine ok(ret == CSTR_GREATER_THAN, "\"_\" vs \".\" expected CSTR_GREATER_THAN, got %d\n", ret);
+    ok(ret == CSTR_GREATER_THAN, "\"_\" vs \".\" expected CSTR_GREATER_THAN, got %d\n", ret);
 
     ret = lstrcmpiA("#", ".");
-    todo_wine ok(ret == -1, "\"#\" vs \".\" expected -1, got %d\n", ret);
+    ok(ret == -1, "\"#\" vs \".\" expected -1, got %d\n", ret);
 
     lcid = MAKELCID(MAKELANGID(LANG_POLISH, SUBLANG_DEFAULT), SORT_DEFAULT);
 
@@ -2420,7 +2420,7 @@ static void test_LocaleNameToLCID(void)
     lcid = pLocaleNameToLCID(LOCALE_NAME_INVARIANT, 0);
     ok(lcid == 0x7F, "Expected lcid = 0x7F, got %08x, error %d\n", lcid, GetLastError());
     ret = pLCIDToLocaleName(lcid, buffer, LOCALE_NAME_MAX_LENGTH, 0);
-    todo_wine ok(ret > 0, "Expected ret > 0, got %d, error %d\n", ret, GetLastError());
+    ok(ret > 0, "Expected ret > 0, got %d, error %d\n", ret, GetLastError());
     trace("%08x, %s\n", lcid, wine_dbgstr_w(buffer));
 
     /* bad name */
@@ -3132,6 +3132,9 @@ static void test_ConvertDefaultLocale(void)
   LCID_RES(LOCALE_SYSTEM_DEFAULT, GetSystemDefaultLCID());
   LCID_RES(LOCALE_USER_DEFAULT,   GetUserDefaultLCID());
   LCID_RES(LOCALE_NEUTRAL,        GetUserDefaultLCID());
+  lcid = ConvertDefaultLocale(LOCALE_INVARIANT);
+  ok(lcid == LOCALE_INVARIANT || broken(lcid == 0x47f) /* win2k[3]/winxp */,
+     "Expected lcid = %08x, got %08x\n", LOCALE_INVARIANT, lcid);
 }
 
 static BOOL CALLBACK langgrp_procA(LGRPID lgrpid, LPSTR lpszNum, LPSTR lpszName,
@@ -4242,7 +4245,7 @@ static void test_GetGeoInfo(void)
 
     /* try invalid type value */
     SetLastError(0xdeadbeef);
-    ret = pGetGeoInfoA(203, GEO_PARENT + 1, NULL, 0, 0);
+    ret = pGetGeoInfoA(203, GEO_CURRENCYSYMBOL + 1, NULL, 0, 0);
     ok(ret == 0, "got %d\n", ret);
     ok(GetLastError() == ERROR_INVALID_FLAGS, "got %d\n", GetLastError());
 }
@@ -4314,6 +4317,190 @@ static void test_EnumSystemGeoID(void)
     }
 }
 
+struct invariant_entry {
+  const char *name;
+  int id;
+  const char *expect;
+};
+
+#define X(x)  #x, x
+static const struct invariant_entry invariant_list[] = {
+    { X(LOCALE_ILANGUAGE),                "007f" },
+    { X(LOCALE_SENGLANGUAGE),             "Invariant Language" },
+    { X(LOCALE_SABBREVLANGNAME),          "IVL" },
+    { X(LOCALE_SNATIVELANGNAME),          "Invariant Language" },
+    { X(LOCALE_ICOUNTRY),                 "1" },
+    { X(LOCALE_SENGCOUNTRY),              "Invariant Country" },
+    { X(LOCALE_SABBREVCTRYNAME),          "IVC" },
+    { X(LOCALE_SNATIVECTRYNAME),          "Invariant Country" },
+    { X(LOCALE_IDEFAULTLANGUAGE),         "0409" },
+    { X(LOCALE_IDEFAULTCOUNTRY),          "1" },
+    { X(LOCALE_IDEFAULTCODEPAGE),         "437" },
+    { X(LOCALE_IDEFAULTANSICODEPAGE),     "1252" },
+    { X(LOCALE_IDEFAULTMACCODEPAGE),      "10000" },
+    { X(LOCALE_SLIST),                    "," },
+    { X(LOCALE_IMEASURE),                 "0" },
+    { X(LOCALE_SDECIMAL),                 "." },
+    { X(LOCALE_STHOUSAND),                "," },
+    { X(LOCALE_SGROUPING),                "3;0" },
+    { X(LOCALE_IDIGITS),                  "2" },
+    { X(LOCALE_ILZERO),                   "1" },
+    { X(LOCALE_INEGNUMBER),               "1" },
+    { X(LOCALE_SNATIVEDIGITS),            "0123456789" },
+    { X(LOCALE_SCURRENCY),                "\x00a4" },
+    { X(LOCALE_SINTLSYMBOL),              "XDR" },
+    { X(LOCALE_SMONDECIMALSEP),           "." },
+    { X(LOCALE_SMONTHOUSANDSEP),          "," },
+    { X(LOCALE_SMONGROUPING),             "3;0" },
+    { X(LOCALE_ICURRDIGITS),              "2" },
+    { X(LOCALE_IINTLCURRDIGITS),          "2" },
+    { X(LOCALE_ICURRENCY),                "0" },
+    { X(LOCALE_INEGCURR),                 "0" },
+    { X(LOCALE_SDATE),                    "/" },
+    { X(LOCALE_STIME),                    ":" },
+    { X(LOCALE_SSHORTDATE),               "MM/dd/yyyy" },
+    { X(LOCALE_SLONGDATE),                "dddd, dd MMMM yyyy" },
+    { X(LOCALE_STIMEFORMAT),              "HH:mm:ss" },
+    { X(LOCALE_IDATE),                    "0" },
+    { X(LOCALE_ILDATE),                   "1" },
+    { X(LOCALE_ITIME),                    "1" },
+    { X(LOCALE_ITIMEMARKPOSN),            "0" },
+    { X(LOCALE_ICENTURY),                 "1" },
+    { X(LOCALE_ITLZERO),                  "1" },
+    { X(LOCALE_IDAYLZERO),                "1" },
+    { X(LOCALE_IMONLZERO),                "1" },
+    { X(LOCALE_S1159),                    "AM" },
+    { X(LOCALE_S2359),                    "PM" },
+    { X(LOCALE_ICALENDARTYPE),            "1" },
+    { X(LOCALE_IOPTIONALCALENDAR),        "0" },
+    { X(LOCALE_IFIRSTDAYOFWEEK),          "6" },
+    { X(LOCALE_IFIRSTWEEKOFYEAR),         "0" },
+    { X(LOCALE_SDAYNAME1),                "Monday" },
+    { X(LOCALE_SDAYNAME2),                "Tuesday" },
+    { X(LOCALE_SDAYNAME3),                "Wednesday" },
+    { X(LOCALE_SDAYNAME4),                "Thursday" },
+    { X(LOCALE_SDAYNAME5),                "Friday" },
+    { X(LOCALE_SDAYNAME6),                "Saturday" },
+    { X(LOCALE_SDAYNAME7),                "Sunday" },
+    { X(LOCALE_SABBREVDAYNAME1),          "Mon" },
+    { X(LOCALE_SABBREVDAYNAME2),          "Tue" },
+    { X(LOCALE_SABBREVDAYNAME3),          "Wed" },
+    { X(LOCALE_SABBREVDAYNAME4),          "Thu" },
+    { X(LOCALE_SABBREVDAYNAME5),          "Fri" },
+    { X(LOCALE_SABBREVDAYNAME6),          "Sat" },
+    { X(LOCALE_SABBREVDAYNAME7),          "Sun" },
+    { X(LOCALE_SMONTHNAME1),              "January" },
+    { X(LOCALE_SMONTHNAME2),              "February" },
+    { X(LOCALE_SMONTHNAME3),              "March" },
+    { X(LOCALE_SMONTHNAME4),              "April" },
+    { X(LOCALE_SMONTHNAME5),              "May" },
+    { X(LOCALE_SMONTHNAME6),              "June" },
+    { X(LOCALE_SMONTHNAME7),              "July" },
+    { X(LOCALE_SMONTHNAME8),              "August" },
+    { X(LOCALE_SMONTHNAME9),              "September" },
+    { X(LOCALE_SMONTHNAME10),             "October" },
+    { X(LOCALE_SMONTHNAME11),             "November" },
+    { X(LOCALE_SMONTHNAME12),             "December" },
+    { X(LOCALE_SMONTHNAME13),             "" },
+    { X(LOCALE_SABBREVMONTHNAME1),        "Jan" },
+    { X(LOCALE_SABBREVMONTHNAME2),        "Feb" },
+    { X(LOCALE_SABBREVMONTHNAME3),        "Mar" },
+    { X(LOCALE_SABBREVMONTHNAME4),        "Apr" },
+    { X(LOCALE_SABBREVMONTHNAME5),        "May" },
+    { X(LOCALE_SABBREVMONTHNAME6),        "Jun" },
+    { X(LOCALE_SABBREVMONTHNAME7),        "Jul" },
+    { X(LOCALE_SABBREVMONTHNAME8),        "Aug" },
+    { X(LOCALE_SABBREVMONTHNAME9),        "Sep" },
+    { X(LOCALE_SABBREVMONTHNAME10),       "Oct" },
+    { X(LOCALE_SABBREVMONTHNAME11),       "Nov" },
+    { X(LOCALE_SABBREVMONTHNAME12),       "Dec" },
+    { X(LOCALE_SABBREVMONTHNAME13),       "" },
+    { X(LOCALE_SPOSITIVESIGN),            "+" },
+    { X(LOCALE_SNEGATIVESIGN),            "-" },
+    { X(LOCALE_IPOSSIGNPOSN),             "3" },
+    { X(LOCALE_INEGSIGNPOSN),             "0" },
+    { X(LOCALE_IPOSSYMPRECEDES),          "1" },
+    { X(LOCALE_IPOSSEPBYSPACE),           "0" },
+    { X(LOCALE_INEGSYMPRECEDES),          "1" },
+    { X(LOCALE_INEGSEPBYSPACE),           "0" },
+    { X(LOCALE_SISO639LANGNAME),          "iv" },
+    { X(LOCALE_SISO3166CTRYNAME),         "IV" },
+    { X(LOCALE_IDEFAULTEBCDICCODEPAGE),   "037" },
+    { X(LOCALE_IPAPERSIZE),               "9" },
+    { X(LOCALE_SENGCURRNAME),             "International Monetary Fund" },
+    { X(LOCALE_SNATIVECURRNAME),          "International Monetary Fund" },
+    { X(LOCALE_SYEARMONTH),               "yyyy MMMM" },
+    { X(LOCALE_IDIGITSUBSTITUTION),       "1" },
+    { X(LOCALE_SNAME),                    "" },
+    { X(LOCALE_SSCRIPTS),                 "Latn;" },
+    { 0 }
+};
+#undef X
+
+static void test_invariant(void)
+{
+  int ret;
+  int len;
+  char buffer[BUFFER_SIZE];
+  const struct invariant_entry *ptr = invariant_list;
+
+  if (!GetLocaleInfoA(LOCALE_INVARIANT, NUO|LOCALE_SLANGUAGE, buffer, sizeof(buffer)))
+  {
+      win_skip("GetLocaleInfoA(LOCALE_INVARIANT) not supported\n"); /* win2k */
+      return;
+  }
+
+  while (ptr->name)
+  {
+    ret = GetLocaleInfoA(LOCALE_INVARIANT, NUO|ptr->id, buffer, sizeof(buffer));
+    if (!ret && (ptr->id == LOCALE_SNAME || ptr->id == LOCALE_SSCRIPTS))
+        win_skip("not supported\n"); /* winxp/win2k3 */
+    else
+    {
+        len = strlen(ptr->expect)+1; /* include \0 */
+        ok(ret == len, "For id %d, expected ret == %d, got %d, error %d\n",
+            ptr->id, len, ret, GetLastError());
+        ok(!strcmp(buffer, ptr->expect), "For id %d, Expected %s, got '%s'\n",
+            ptr->id, ptr->expect, buffer);
+    }
+
+    ptr++;
+  }
+
+  if ((PRIMARYLANGID(LANGIDFROMLCID(GetSystemDefaultLCID())) != LANG_ENGLISH) ||
+      (PRIMARYLANGID(LANGIDFROMLCID(GetThreadLocale())) != LANG_ENGLISH))
+  {
+      skip("Non-English locale\n");
+  }
+  else
+  {
+    /* some locales translate these */
+    static const char lang[]  = "Invariant Language (Invariant Country)";
+    static const char cntry[] = "Invariant Country";
+    static const char sortm[] = "Math Alphanumerics";
+    static const char sortd[] = "Default"; /* win2k3 */
+
+    ret = GetLocaleInfoA(LOCALE_INVARIANT, NUO|LOCALE_SLANGUAGE, buffer, sizeof(buffer));
+    len = lstrlenA(lang) + 1;
+    ok(ret == len, "Expected ret == %d, got %d, error %d\n", len, ret, GetLastError());
+    ok(!strcmp(buffer, lang), "Expected %s, got '%s'\n", lang, buffer);
+
+    ret = GetLocaleInfoA(LOCALE_INVARIANT, NUO|LOCALE_SCOUNTRY, buffer, sizeof(buffer));
+    len = lstrlenA(cntry) + 1;
+    ok(ret == len, "Expected ret == %d, got %d, error %d\n", len, ret, GetLastError());
+    ok(!strcmp(buffer, cntry), "Expected %s, got '%s'\n", cntry, buffer);
+
+    ret = GetLocaleInfoA(LOCALE_INVARIANT, NUO|LOCALE_SSORTNAME, buffer, sizeof(buffer));
+    if (ret == lstrlenA(sortm)+1)
+        ok(!strcmp(buffer, sortm), "Expected %s, got '%s'\n", sortm, buffer);
+    else if (ret == lstrlenA(sortd)+1) /* win2k3 */
+        ok(!strcmp(buffer, sortd), "Expected %s, got '%s'\n", sortd, buffer);
+    else
+        ok(0, "Expected ret == %d or %d, got %d, error %d\n",
+            lstrlenA(sortm)+1, lstrlenA(sortd)+1, ret, GetLastError());
+  }
+}
+
 START_TEST(locale)
 {
   InitFunctionPointers();
@@ -4353,6 +4540,7 @@ START_TEST(locale)
   test_CompareStringOrdinal();
   test_GetGeoInfo();
   test_EnumSystemGeoID();
+  test_invariant();
   /* this requires collation table patch to make it MS compatible */
   if (0) test_sorting();
 }

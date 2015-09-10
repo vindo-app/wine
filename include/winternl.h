@@ -366,7 +366,7 @@ typedef struct _TEB
     PVOID                        Spare4;                            /* f7c/1750 */
     PVOID                        ReservedForOle;                    /* f80/1758 */
     ULONG                        WaitingOnLoaderLock;               /* f84/1760 */
-    PVOID                        Reserved5[3];                      /* f88/1768 */
+    PVOID                        Reserved5[3];                      /* f88/1768 used for wineserver shared memory */
     PVOID                       *TlsExpansionSlots;                 /* f94/1780 */
     ULONG                        ImpersonationLocale;               /* f98/1788 */
     ULONG                        IsImpersonating;                   /* f9c/178c */
@@ -668,6 +668,11 @@ typedef struct _FILE_PIPE_LOCAL_INFORMATION {
     ULONG NamedPipeEnd;
 } FILE_PIPE_LOCAL_INFORMATION, *PFILE_PIPE_LOCAL_INFORMATION;
 
+#define FILE_PIPE_DISCONNECTED_STATE    0x01
+#define FILE_PIPE_LISTENING_STATE       0x02
+#define FILE_PIPE_CONNECTED_STATE       0x03
+#define FILE_PIPE_CLOSING_STATE         0x04
+
 typedef struct _FILE_ALL_INFORMATION {
     FILE_BASIC_INFORMATION     BasicInformation;
     FILE_STANDARD_INFORMATION  StandardInformation;
@@ -859,6 +864,22 @@ typedef enum _THREADINFOCLASS {
     ThreadSetTlsArrayAddress,
     ThreadIsIoPending,
     ThreadHideFromDebugger,
+    ThreadBreakOnTermination,
+    ThreadSwitchLegacyState,
+    ThreadIsTerminated,
+    ThreadLastSystemCall,
+    ThreadIoPriority,
+    ThreadCycleTime,
+    ThreadPagePriority,
+    ThreadActualBasePriority,
+    ThreadTebInformation,
+    ThreadCSwitchMon,
+    ThreadCSwitchPmu,
+    ThreadWow64Context,
+    ThreadGroupInformation,
+    ThreadUmsInformation,
+    ThreadCounterProfiling,
+    ThreadIdealProcessorEx,
     MaxThreadInfoClass
 } THREADINFOCLASS;
 
@@ -2251,7 +2272,7 @@ NTSYSAPI NTSTATUS  WINAPI NtSetInformationThread(HANDLE,THREADINFOCLASS,LPCVOID,
 NTSYSAPI NTSTATUS  WINAPI NtSetInformationToken(HANDLE,TOKEN_INFORMATION_CLASS,PVOID,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtSetIntervalProfile(ULONG,KPROFILE_SOURCE);
 NTSYSAPI NTSTATUS  WINAPI NtSetIoCompletion(HANDLE,ULONG_PTR,ULONG_PTR,NTSTATUS,SIZE_T);
-NTSYSAPI NTSTATUS  WINAPI NtSetLdtEntries(ULONG,LDT_ENTRY,ULONG,LDT_ENTRY);
+NTSYSAPI NTSTATUS  WINAPI NtSetLdtEntries(ULONG,ULONG,ULONG,ULONG,ULONG,ULONG);
 NTSYSAPI NTSTATUS  WINAPI NtSetLowEventPair(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtSetLowWaitHighEventPair(HANDLE);
 NTSYSAPI NTSTATUS  WINAPI NtSetLowWaitHighThread(VOID);
@@ -2659,6 +2680,9 @@ NTSYSAPI void      WINAPI TpWaitForWork(TP_WORK *,BOOL);
 NTSYSAPI NTSTATUS CDECL wine_nt_to_unix_file_name( const UNICODE_STRING *nameW, ANSI_STRING *unix_name_ret,
                                                    UINT disposition, BOOLEAN check_case );
 NTSYSAPI NTSTATUS CDECL wine_unix_to_nt_file_name( const ANSI_STRING *name, UNICODE_STRING *nt );
+
+NTSYSAPI SIZE_T CDECL wine_uninterrupted_read_memory( const void *addr, void *buffer, SIZE_T size );
+NTSYSAPI SIZE_T CDECL wine_uninterrupted_write_memory( void *addr, const void *buffer, SIZE_T size );
 
 
 /***********************************************************************

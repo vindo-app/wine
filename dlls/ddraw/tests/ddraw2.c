@@ -1121,8 +1121,10 @@ static void test_texture_load_ckey(void)
     IDirectDraw2 *ddraw = NULL;
     IDirectDrawSurface *src = NULL;
     IDirectDrawSurface *dst = NULL;
+    IDirectDrawSurface *dst2 = NULL;
     IDirect3DTexture *src_tex = NULL;
     IDirect3DTexture *dst_tex = NULL;
+    IDirect3DTexture *dst2_tex = NULL;
     DDSURFACEDESC ddsd;
     HRESULT hr;
     DDCOLORKEY ckey;
@@ -1134,14 +1136,29 @@ static void test_texture_load_ckey(void)
 
     memset(&ddsd, 0, sizeof(ddsd));
     ddsd.dwSize = sizeof(ddsd);
-    ddsd.dwFlags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH;
+    ddsd.dwFlags = DDSD_CAPS | DDSD_HEIGHT | DDSD_WIDTH | DDSD_PIXELFORMAT;
     ddsd.dwHeight = 128;
     ddsd.dwWidth = 128;
     ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE | DDSCAPS_SYSTEMMEMORY;
+    ddsd.ddpfPixelFormat.dwSize = sizeof(ddsd.ddpfPixelFormat);
+    ddsd.ddpfPixelFormat.dwFlags = DDPF_RGB;
+    U1(ddsd.ddpfPixelFormat).dwRGBBitCount = 32;
+    U2(ddsd.ddpfPixelFormat).dwRBitMask = 0x00FF0000;
+    U3(ddsd.ddpfPixelFormat).dwGBitMask = 0x0000FF00;
+    U4(ddsd.ddpfPixelFormat).dwBBitMask = 0x000000FF;
+
     hr = IDirectDraw2_CreateSurface(ddraw, &ddsd, &src, NULL);
     ok(SUCCEEDED(hr), "Failed to create source texture, hr %#x.\n", hr);
     ddsd.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
     hr = IDirectDraw2_CreateSurface(ddraw, &ddsd, &dst, NULL);
+    ok(SUCCEEDED(hr), "Failed to create destination texture, hr %#x.\n", hr);
+
+    U1(ddsd.ddpfPixelFormat).dwRGBBitCount = 16;
+    U2(ddsd.ddpfPixelFormat).dwRBitMask = 0xf800;
+    U3(ddsd.ddpfPixelFormat).dwGBitMask = 0x07e0;
+    U4(ddsd.ddpfPixelFormat).dwBBitMask = 0x001f;
+
+    hr = IDirectDraw2_CreateSurface(ddraw, &ddsd, &dst2, NULL);
     ok(SUCCEEDED(hr), "Failed to create destination texture, hr %#x.\n", hr);
 
     hr = IDirectDrawSurface_QueryInterface(src, &IID_IDirect3DTexture, (void **)&src_tex);
@@ -1153,6 +1170,8 @@ static void test_texture_load_ckey(void)
         goto done;
     }
     hr = IDirectDrawSurface_QueryInterface(dst, &IID_IDirect3DTexture, (void **)&dst_tex);
+    ok(SUCCEEDED(hr), "Failed to get Direct3DTexture interface, hr %#x.\n", hr);
+    hr = IDirectDrawSurface_QueryInterface(dst2, &IID_IDirect3DTexture, (void **)&dst2_tex);
     ok(SUCCEEDED(hr), "Failed to get Direct3DTexture interface, hr %#x.\n", hr);
 
     /* No surface has a color key */
@@ -1182,6 +1201,11 @@ static void test_texture_load_ckey(void)
     ok(ckey.dwColorSpaceLowValue == 0x0000ff00, "dwColorSpaceLowValue is %#x.\n", ckey.dwColorSpaceLowValue);
     ok(ckey.dwColorSpaceHighValue == 0x0000ff00, "dwColorSpaceHighValue is %#x.\n", ckey.dwColorSpaceHighValue);
 
+    /* Source surface has a color key but destination differs in format */
+    ckey.dwColorSpaceLowValue = ckey.dwColorSpaceHighValue = 0x0;
+    hr = IDirect3DTexture_Load(dst2_tex, src_tex);
+    ok(hr == E_FAIL, "Got unexpected hr %#x, expected E_FAIL.\n", hr);
+
     /* Both surfaces have a color key: Dest ckey is overwritten */
     ckey.dwColorSpaceLowValue = ckey.dwColorSpaceHighValue = 0x000000ff;
     hr = IDirectDrawSurface_SetColorKey(dst, DDCKEY_SRCBLT, &ckey);
@@ -1206,8 +1230,10 @@ static void test_texture_load_ckey(void)
     ok(ckey.dwColorSpaceHighValue == 0x0000ff00, "dwColorSpaceHighValue is %#x.\n", ckey.dwColorSpaceHighValue);
 
 done:
+    if (dst2_tex) IDirect3DTexture_Release(dst2_tex);
     if (dst_tex) IDirect3DTexture_Release(dst_tex);
     if (src_tex) IDirect3DTexture_Release(src_tex);
+    if (dst2) IDirectDrawSurface_Release(dst2);
     if (dst) IDirectDrawSurface_Release(dst);
     if (src) IDirectDrawSurface_Release(src);
     if (ddraw) IDirectDraw2_Release(ddraw);
@@ -5804,7 +5830,7 @@ static void test_pixel_format(void)
     }
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     if (hdc2)
     {
@@ -5814,7 +5840,7 @@ static void test_pixel_format(void)
         ok(SUCCEEDED(hr), "Failed to set clipper window, hr %#x.\n", hr);
 
         test_format = GetPixelFormat(hdc);
-        ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+        todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
         test_format = GetPixelFormat(hdc2);
         ok(test_format == format, "second window has pixel format %d, expected %d\n", test_format, format);
@@ -5829,7 +5855,7 @@ static void test_pixel_format(void)
     ok(SUCCEEDED(hr), "Failed to create surface, hr %#x.\n",hr);
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     if (hdc2)
     {
@@ -5843,7 +5869,7 @@ static void test_pixel_format(void)
         ok(SUCCEEDED(hr), "Failed to set clipper, hr %#x.\n", hr);
 
         test_format = GetPixelFormat(hdc);
-        ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+        todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
         test_format = GetPixelFormat(hdc2);
         ok(test_format == format, "second window has pixel format %d, expected %d\n", test_format, format);
@@ -5855,12 +5881,12 @@ static void test_pixel_format(void)
     ok(SUCCEEDED(hr), "Failed to clear source surface, hr %#x.\n", hr);
 
     test_format = GetPixelFormat(hdc);
-    ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
+    todo_wine ok(test_format == format, "window has pixel format %d, expected %d\n", test_format, format);
 
     if (hdc2)
     {
         test_format = GetPixelFormat(hdc2);
-        ok(test_format == format, "second window has pixel format %d, expected %d\n", test_format, format);
+        todo_wine ok(test_format == format, "second window has pixel format %d, expected %d\n", test_format, format);
     }
 
 cleanup:
@@ -8435,6 +8461,429 @@ done:
     DestroyWindow(window);
 }
 
+static void test_colorkey_precision(void)
+{
+    static D3DLVERTEX quad[] =
+    {
+        {{-1.0f}, {-1.0f}, {0.0f}, 0, {0xff000000}, {0}, {0.0f}, {0.0f}},
+        {{-1.0f}, { 1.0f}, {0.0f}, 0, {0xff000000}, {0}, {0.0f}, {1.0f}},
+        {{ 1.0f}, {-1.0f}, {0.0f}, 0, {0xff000000}, {0}, {1.0f}, {0.0f}},
+        {{ 1.0f}, { 1.0f}, {0.0f}, 0, {0xff000000}, {0}, {1.0f}, {1.0f}},
+    };
+    static D3DRECT clear_rect = {{0}, {0}, {640}, {480}};
+    IDirect3DDevice2 *device;
+    IDirectDraw2 *ddraw;
+    IDirectDrawSurface *rt;
+    IDirect3DViewport2 *viewport;
+    HWND window;
+    HRESULT hr;
+    IDirectDrawSurface *src, *dst, *texture;
+    D3DTEXTUREHANDLE handle;
+    IDirect3DTexture2 *d3d_texture;
+    IDirect3DMaterial2 *green;
+    DDSURFACEDESC surface_desc, lock_desc;
+    ULONG refcount;
+    D3DCOLOR color;
+    unsigned int t, c;
+    DDCOLORKEY ckey;
+    DDBLTFX fx;
+    DWORD data[4] = {0}, color_mask;
+    D3DDEVICEDESC device_desc, hel_desc;
+    BOOL warp;
+    static const struct
+    {
+        unsigned int max, shift, bpp, clear;
+        const char *name;
+        DDPIXELFORMAT fmt;
+    }
+    tests[] =
+    {
+        {
+            255, 0, 4, 0x00345678, "D3DFMT_X8R8G8B8",
+            {
+                sizeof(DDPIXELFORMAT), DDPF_RGB, 0,
+                {32}, {0x00ff0000}, {0x0000ff00}, {0x000000ff}, {0x00000000}
+            }
+
+        },
+        {
+            63, 5, 2, 0x5678, "D3DFMT_R5G6B5, G channel",
+            {
+                sizeof(DDPIXELFORMAT), DDPF_RGB, 0,
+                {16}, {0xf800}, {0x07e0}, {0x001f}, {0x0000}
+            }
+
+        },
+        {
+            31, 0, 2, 0x5678, "D3DFMT_R5G6B5, B channel",
+            {
+                sizeof(DDPIXELFORMAT), DDPF_RGB, 0,
+                {16}, {0xf800}, {0x07e0}, {0x001f}, {0x0000}
+            }
+
+        },
+        {
+            15, 0, 2, 0x0678, "D3DFMT_A4R4G4B4",
+            {
+                sizeof(DDPIXELFORMAT), DDPF_RGB | DDPF_ALPHAPIXELS, 0,
+                {16}, {0x0f00}, {0x00f0}, {0x000f}, {0xf000}
+            }
+
+        },
+    };
+
+    window = CreateWindowA("static", "ddraw_test", WS_OVERLAPPEDWINDOW,
+            0, 0, 640, 480, 0, 0, 0, 0);
+    ddraw = create_ddraw();
+    ok(!!ddraw, "Failed to create a ddraw object.\n");
+    if (!(device = create_device(ddraw, window, DDSCL_NORMAL)))
+    {
+        skip("Failed to create a 3D device, skipping test.\n");
+        DestroyWindow(window);
+        IDirectDraw2_Release(ddraw);
+        return;
+    }
+    hr = IDirect3DDevice2_GetRenderTarget(device, &rt);
+    ok(SUCCEEDED(hr), "Failed to get render target, hr %#x.\n", hr);
+
+    /* The Windows 8 WARP driver has plenty of false negatives in X8R8G8B8
+     * (color key doesn't match although the values are equal), and a false
+     * positive when the color key is 0 and the texture contains the value 1.
+     * I don't want to mark this broken unconditionally since this would
+     * essentially disable the test on Windows. Try to detect WARP (and I
+     * guess mismatch other SW renderers) by its ability to texture from
+     * system memory. Also on random occasions 254 == 255 and 255 != 255.*/
+    memset(&device_desc, 0, sizeof(device_desc));
+    device_desc.dwSize = sizeof(device_desc);
+    memset(&hel_desc, 0, sizeof(hel_desc));
+    hel_desc.dwSize = sizeof(hel_desc);
+    hr = IDirect3DDevice2_GetCaps(device, &device_desc, &hel_desc);
+    ok(SUCCEEDED(hr), "Failed to get device caps, hr %#x.\n", hr);
+    warp = !!(device_desc.dwDevCaps & D3DDEVCAPS_TEXTURESYSTEMMEMORY);
+
+    green = create_diffuse_material(device, 0.0f, 1.0f, 0.0f, 0.0f);
+    viewport = create_viewport(device, 0, 0, 640, 480);
+    viewport_set_background(device, viewport, green);
+    hr = IDirect3DDevice2_SetCurrentViewport(device, viewport);
+    ok(SUCCEEDED(hr), "Failed to activate the viewport, hr %#x.\n", hr);
+
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_ZENABLE, D3DZB_FALSE);
+    ok(SUCCEEDED(hr), "Failed to disable z-buffering, hr %#x.\n", hr);
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_COLORKEYENABLE, TRUE);
+    ok(SUCCEEDED(hr), "Failed to enable color keying, hr %#x.\n", hr);
+    /* There's no way to ignore the texture color in d3d2, so multiply the texture color
+     * with a black vertex color. */
+    hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_TEXTUREMAPBLEND, D3DTBLEND_MODULATEALPHA);
+    ok(SUCCEEDED(hr), "Failed to set render state, hr %#x.\n", hr);
+
+    memset(&fx, 0, sizeof(fx));
+    fx.dwSize = sizeof(fx);
+    memset(&lock_desc, 0, sizeof(lock_desc));
+    lock_desc.dwSize = sizeof(lock_desc);
+
+    for (t = 0; t < sizeof(tests) / sizeof(*tests); ++t)
+    {
+        memset(&surface_desc, 0, sizeof(surface_desc));
+        surface_desc.dwSize = sizeof(surface_desc);
+        surface_desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT;
+        surface_desc.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN;
+        surface_desc.dwWidth = 4;
+        surface_desc.dwHeight = 1;
+        surface_desc.ddpfPixelFormat = tests[t].fmt;
+        /* Windows XP (at least with the r200 driver, other drivers untested) produces
+         * garbage when doing color keyed texture->texture blits. */
+        hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &src, NULL);
+        ok(SUCCEEDED(hr), "Failed to create surface, hr %#x.\n", hr);
+        hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &dst, NULL);
+        ok(SUCCEEDED(hr), "Failed to create surface, hr %#x.\n", hr);
+
+        fx.dwFillColor = tests[t].clear;
+        /* On the w8 testbot (WARP driver) the blit result has different values in the
+         * X channel. */
+        color_mask = U2(tests[t].fmt).dwRBitMask
+                | U3(tests[t].fmt).dwGBitMask
+                | U4(tests[t].fmt).dwBBitMask;
+
+        for (c = 0; c <= tests[t].max; ++c)
+        {
+            /* The idiotic Nvidia Windows driver can't change the color key on a d3d
+             * texture after it has been set once... */
+            surface_desc.dwFlags |= DDSD_CKSRCBLT;
+            surface_desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+            surface_desc.ddckCKSrcBlt.dwColorSpaceLowValue = c << tests[t].shift;
+            surface_desc.ddckCKSrcBlt.dwColorSpaceHighValue = c << tests[t].shift;
+            hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &texture, NULL);
+            ok(SUCCEEDED(hr), "Failed to create surface, hr %#x.\n", hr);
+
+            hr = IDirectDrawSurface4_QueryInterface(texture, &IID_IDirect3DTexture2, (void **)&d3d_texture);
+            ok(SUCCEEDED(hr), "Failed to get texture interface, hr %#x.\n", hr);
+            hr = IDirect3DTexture2_GetHandle(d3d_texture, device, &handle);
+            ok(SUCCEEDED(hr), "Failed to get texture handle, hr %#x.\n", hr);
+            hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_TEXTUREHANDLE, handle);
+            ok(SUCCEEDED(hr), "Failed to set texture handle, hr %#x.\n", hr);
+            IDirect3DTexture2_Release(d3d_texture);
+
+            hr = IDirectDrawSurface_Blt(dst, NULL, NULL, NULL, DDBLT_COLORFILL | DDBLT_WAIT, &fx);
+            ok(SUCCEEDED(hr), "Failed to clear destination surface, hr %#x.\n", hr);
+
+            hr = IDirectDrawSurface_Lock(src, NULL, &lock_desc, DDLOCK_WAIT, NULL);
+            ok(SUCCEEDED(hr), "Failed to lock surface, hr %#x.\n", hr);
+            switch (tests[t].bpp)
+            {
+                case 4:
+                    ((DWORD *)lock_desc.lpSurface)[0] = (c ? c - 1 : 0) << tests[t].shift;
+                    ((DWORD *)lock_desc.lpSurface)[1] = c << tests[t].shift;
+                    ((DWORD *)lock_desc.lpSurface)[2] = min(c + 1, tests[t].max) << tests[t].shift;
+                    ((DWORD *)lock_desc.lpSurface)[3] = 0xffffffff;
+                    break;
+
+                case 2:
+                    ((WORD *)lock_desc.lpSurface)[0] = (c ? c - 1 : 0) << tests[t].shift;
+                    ((WORD *)lock_desc.lpSurface)[1] = c << tests[t].shift;
+                    ((WORD *)lock_desc.lpSurface)[2] = min(c + 1, tests[t].max) << tests[t].shift;
+                    ((WORD *)lock_desc.lpSurface)[3] = 0xffff;
+                    break;
+            }
+            hr = IDirectDrawSurface_Unlock(src, 0);
+            ok(SUCCEEDED(hr), "Failed to unlock surface, hr %#x.\n", hr);
+            hr = IDirectDrawSurface_Blt(texture, NULL, src, NULL, DDBLT_WAIT, NULL);
+            ok(SUCCEEDED(hr), "Failed to blit, hr %#x.\n", hr);
+
+            ckey.dwColorSpaceLowValue = c << tests[t].shift;
+            ckey.dwColorSpaceHighValue = c << tests[t].shift;
+            hr = IDirectDrawSurface_SetColorKey(src, DDCKEY_SRCBLT, &ckey);
+            ok(SUCCEEDED(hr), "Failed to set color key, hr %#x.\n", hr);
+
+            hr = IDirectDrawSurface_Blt(dst, NULL, src, NULL, DDBLT_KEYSRC | DDBLT_WAIT, NULL);
+            ok(SUCCEEDED(hr), "Failed to blit, hr %#x.\n", hr);
+
+            /* Don't make this read only, it somehow breaks the detection of the Nvidia bug below. */
+            hr = IDirectDrawSurface_Lock(dst, NULL, &lock_desc, DDLOCK_WAIT, NULL);
+            ok(SUCCEEDED(hr), "Failed to lock surface, hr %#x.\n", hr);
+            switch (tests[t].bpp)
+            {
+                case 4:
+                    data[0] = ((DWORD *)lock_desc.lpSurface)[0] & color_mask;
+                    data[1] = ((DWORD *)lock_desc.lpSurface)[1] & color_mask;
+                    data[2] = ((DWORD *)lock_desc.lpSurface)[2] & color_mask;
+                    data[3] = ((DWORD *)lock_desc.lpSurface)[3] & color_mask;
+                    break;
+
+                case 2:
+                    data[0] = ((WORD *)lock_desc.lpSurface)[0] & color_mask;
+                    data[1] = ((WORD *)lock_desc.lpSurface)[1] & color_mask;
+                    data[2] = ((WORD *)lock_desc.lpSurface)[2] & color_mask;
+                    data[3] = ((WORD *)lock_desc.lpSurface)[3] & color_mask;
+                    break;
+            }
+            hr = IDirectDrawSurface_Unlock(dst, 0);
+            ok(SUCCEEDED(hr), "Failed to unlock surface, hr %#x.\n", hr);
+
+            if (!c)
+            {
+                ok(data[0] == tests[t].clear, "Expected surface content %#x, got %#x, format %s, c=%u.\n",
+                        tests[t].clear, data[0], tests[t].name, c);
+
+                if (data[3] == tests[t].clear)
+                {
+                    /* My Geforce GTX 460 on Windows 7 misbehaves when A4R4G4B4 is blitted with color
+                     * keying: The blit takes ~0.5 seconds, and subsequent color keying draws are broken,
+                     * even when a different surface is used. The blit itself doesn't draw anything,
+                     * so we can detect the bug by looking at the otherwise unused 4th texel. It should
+                     * never be masked out by the key.
+                     *
+                     * Also appears to affect the testbot in some way with R5G6B5. Color keying is
+                     * terrible on WARP. */
+                    skip("Nvidia A4R4G4B4 color keying blit bug detected, skipping.\n");
+                    IDirectDrawSurface_Release(texture);
+                    IDirectDrawSurface_Release(src);
+                    IDirectDrawSurface_Release(dst);
+                    goto done;
+                }
+            }
+            else
+                ok(data[0] == (c - 1) << tests[t].shift, "Expected surface content %#x, got %#x, format %s, c=%u.\n",
+                        (c - 1) << tests[t].shift, data[0], tests[t].name, c);
+
+            ok(data[1] == tests[t].clear, "Expected surface content %#x, got %#x, format %s, c=%u.\n",
+                    tests[t].clear, data[1], tests[t].name, c);
+
+            if (c == tests[t].max)
+                ok(data[2] == tests[t].clear, "Expected surface content %#x, got %#x, format %s, c=%u.\n",
+                        tests[t].clear, data[2], tests[t].name, c);
+            else
+                ok(data[2] == (c + 1) << tests[t].shift, "Expected surface content %#x, got %#x, format %s, c=%u.\n",
+                        (c + 1) << tests[t].shift, data[2], tests[t].name, c);
+
+            hr = IDirect3DViewport2_Clear(viewport, 1, &clear_rect, D3DCLEAR_TARGET);
+            ok(SUCCEEDED(hr), "Failed to clear, hr %#x.\n", hr);
+
+            hr = IDirect3DDevice2_BeginScene(device);
+            ok(SUCCEEDED(hr), "Failed to begin scene, hr %#x.\n", hr);
+            hr = IDirect3DDevice2_DrawPrimitive(device, D3DPT_TRIANGLESTRIP, D3DVT_LVERTEX, quad, 4, 0);
+            ok(SUCCEEDED(hr), "Failed to draw, hr %#x.\n", hr);
+            hr = IDirect3DDevice2_EndScene(device);
+            ok(SUCCEEDED(hr), "Failed to end scene, hr %#x.\n", hr);
+
+            color = get_surface_color(rt, 80, 240);
+            if (!c)
+                ok(compare_color(color, 0x0000ff00, 1) || broken(warp && compare_color(color, 0x00000000, 1)),
+                        "Got unexpected color 0x%08x, format %s, c=%u.\n",
+                        color, tests[t].name, c);
+            else
+                ok(compare_color(color, 0x00000000, 1) || broken(warp && compare_color(color, 0x0000ff00, 1)),
+                        "Got unexpected color 0x%08x, format %s, c=%u.\n",
+                        color, tests[t].name, c);
+
+            color = get_surface_color(rt, 240, 240);
+            ok(compare_color(color, 0x0000ff00, 1) || broken(warp && compare_color(color, 0x00000000, 1)),
+                    "Got unexpected color 0x%08x, format %s, c=%u.\n",
+                    color, tests[t].name, c);
+
+            color = get_surface_color(rt, 400, 240);
+            if (c == tests[t].max)
+                ok(compare_color(color, 0x0000ff00, 1) || broken(warp && compare_color(color, 0x00000000, 1)),
+                        "Got unexpected color 0x%08x, format %s, c=%u.\n",
+                        color, tests[t].name, c);
+            else
+                ok(compare_color(color, 0x00000000, 1) || broken(warp && compare_color(color, 0x0000ff00, 1)),
+                        "Got unexpected color 0x%08x, format %s, c=%u.\n",
+                        color, tests[t].name, c);
+
+            hr = IDirect3DDevice2_SetRenderState(device, D3DRENDERSTATE_TEXTUREHANDLE, 0);
+            ok(SUCCEEDED(hr), "Failed to set texture handle, hr %#x.\n", hr);
+            IDirectDrawSurface_Release(texture);
+        }
+        IDirectDrawSurface_Release(src);
+        IDirectDrawSurface_Release(dst);
+    }
+done:
+
+    destroy_viewport(device, viewport);
+    destroy_material(green);
+    IDirectDrawSurface_Release(rt);
+    IDirect3DDevice2_Release(device);
+    refcount = IDirectDraw2_Release(ddraw);
+    ok(refcount == 0, "Ddraw object not properly released, refcount %u.\n", refcount);
+    DestroyWindow(window);
+}
+
+static void test_range_colorkey(void)
+{
+    IDirectDraw2 *ddraw;
+    HWND window;
+    HRESULT hr;
+    IDirectDrawSurface *surface;
+    DDSURFACEDESC surface_desc;
+    ULONG refcount;
+    DDCOLORKEY ckey;
+
+    window = CreateWindowA("static", "ddraw_test", WS_OVERLAPPEDWINDOW,
+            0, 0, 640, 480, 0, 0, 0, 0);
+    ddraw = create_ddraw();
+    ok(!!ddraw, "Failed to create a ddraw object.\n");
+    hr = IDirectDraw2_SetCooperativeLevel(ddraw, window, DDSCL_NORMAL);
+    ok(SUCCEEDED(hr), "Failed to set cooperative level, hr %#x.\n", hr);
+
+    memset(&surface_desc, 0, sizeof(surface_desc));
+    surface_desc.dwSize = sizeof(surface_desc);
+    surface_desc.dwFlags = DDSD_CAPS | DDSD_WIDTH | DDSD_HEIGHT | DDSD_PIXELFORMAT | DDSD_CKSRCBLT;
+    surface_desc.ddsCaps.dwCaps = DDSCAPS_TEXTURE;
+    surface_desc.dwWidth = 1;
+    surface_desc.dwHeight = 1;
+    surface_desc.ddpfPixelFormat.dwFlags = DDPF_RGB;
+    U1(surface_desc.ddpfPixelFormat).dwRGBBitCount = 32;
+    U2(surface_desc.ddpfPixelFormat).dwRBitMask = 0x00ff0000;
+    U3(surface_desc.ddpfPixelFormat).dwGBitMask = 0x0000ff00;
+    U4(surface_desc.ddpfPixelFormat).dwBBitMask = 0x000000ff;
+    U5(surface_desc.ddpfPixelFormat).dwRGBAlphaBitMask = 0x00000000;
+
+    /* Creating a surface with a range color key fails with DDERR_NOCOLORKEY. */
+    surface_desc.ddckCKSrcBlt.dwColorSpaceLowValue = 0x00000000;
+    surface_desc.ddckCKSrcBlt.dwColorSpaceHighValue = 0x00000001;
+    hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &surface, NULL);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+
+    surface_desc.ddckCKSrcBlt.dwColorSpaceLowValue = 0x00000001;
+    surface_desc.ddckCKSrcBlt.dwColorSpaceHighValue = 0x00000000;
+    hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &surface, NULL);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+
+    /* Same for DDSCAPS_OFFSCREENPLAIN. */
+    surface_desc.ddsCaps.dwCaps = DDSCAPS_OFFSCREENPLAIN;
+    surface_desc.ddckCKSrcBlt.dwColorSpaceLowValue = 0x00000000;
+    surface_desc.ddckCKSrcBlt.dwColorSpaceHighValue = 0x00000001;
+    hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &surface, NULL);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+
+    surface_desc.ddckCKSrcBlt.dwColorSpaceLowValue = 0x00000001;
+    surface_desc.ddckCKSrcBlt.dwColorSpaceHighValue = 0x00000000;
+    hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &surface, NULL);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+
+    surface_desc.ddckCKSrcBlt.dwColorSpaceLowValue = 0x00000000;
+    surface_desc.ddckCKSrcBlt.dwColorSpaceHighValue = 0x00000000;
+    hr = IDirectDraw2_CreateSurface(ddraw, &surface_desc, &surface, NULL);
+    ok(SUCCEEDED(hr), "Failed to create surface, hr %#x.\n", hr);
+
+    /* Setting a range color key without DDCKEY_COLORSPACE collapses the key. */
+    ckey.dwColorSpaceLowValue = 0x00000000;
+    ckey.dwColorSpaceHighValue = 0x00000001;
+    hr = IDirectDrawSurface_SetColorKey(surface, DDCKEY_SRCBLT, &ckey);
+    ok(SUCCEEDED(hr), "Failed to set color key, hr %#x.\n", hr);
+
+    hr = IDirectDrawSurface_GetColorKey(surface, DDCKEY_SRCBLT, &ckey);
+    ok(SUCCEEDED(hr), "Failed to get color key, hr %#x.\n", hr);
+    ok(!ckey.dwColorSpaceLowValue, "Got unexpected value 0x%08x.\n", ckey.dwColorSpaceLowValue);
+    ok(!ckey.dwColorSpaceHighValue, "Got unexpected value 0x%08x.\n", ckey.dwColorSpaceHighValue);
+
+    ckey.dwColorSpaceLowValue = 0x00000001;
+    ckey.dwColorSpaceHighValue = 0x00000000;
+    hr = IDirectDrawSurface_SetColorKey(surface, DDCKEY_SRCBLT, &ckey);
+    ok(SUCCEEDED(hr), "Failed to set color key, hr %#x.\n", hr);
+
+    hr = IDirectDrawSurface_GetColorKey(surface, DDCKEY_SRCBLT, &ckey);
+    ok(SUCCEEDED(hr), "Failed to get color key, hr %#x.\n", hr);
+    ok(ckey.dwColorSpaceLowValue == 0x00000001, "Got unexpected value 0x%08x.\n", ckey.dwColorSpaceLowValue);
+    ok(ckey.dwColorSpaceHighValue == 0x00000001, "Got unexpected value 0x%08x.\n", ckey.dwColorSpaceHighValue);
+
+    /* DDCKEY_COLORSPACE is ignored if the key is a single value. */
+    ckey.dwColorSpaceLowValue = 0x00000000;
+    ckey.dwColorSpaceHighValue = 0x00000000;
+    hr = IDirectDrawSurface_SetColorKey(surface, DDCKEY_SRCBLT | DDCKEY_COLORSPACE, &ckey);
+    ok(SUCCEEDED(hr), "Failed to set color key, hr %#x.\n", hr);
+
+    /* Using it with a range key results in DDERR_NOCOLORKEYHW. */
+    ckey.dwColorSpaceLowValue = 0x00000001;
+    ckey.dwColorSpaceHighValue = 0x00000000;
+    hr = IDirectDrawSurface_SetColorKey(surface, DDCKEY_SRCBLT | DDCKEY_COLORSPACE, &ckey);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+    ckey.dwColorSpaceLowValue = 0x00000000;
+    ckey.dwColorSpaceHighValue = 0x00000001;
+    hr = IDirectDrawSurface_SetColorKey(surface, DDCKEY_SRCBLT | DDCKEY_COLORSPACE, &ckey);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+    /* Range destination keys don't work either. */
+    hr = IDirectDrawSurface_SetColorKey(surface, DDCKEY_DESTBLT | DDCKEY_COLORSPACE, &ckey);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+
+    /* Just to show it's not because of A, R, and G having equal values. */
+    ckey.dwColorSpaceLowValue = 0x00000000;
+    ckey.dwColorSpaceHighValue = 0x01010101;
+    hr = IDirectDrawSurface_SetColorKey(surface, DDCKEY_SRCBLT | DDCKEY_COLORSPACE, &ckey);
+    ok(hr == DDERR_NOCOLORKEYHW, "Got unexpected hr %#x.\n", hr);
+
+    /* None of these operations modified the key. */
+    hr = IDirectDrawSurface_GetColorKey(surface, DDCKEY_SRCBLT, &ckey);
+    ok(SUCCEEDED(hr), "Failed to get color key, hr %#x.\n", hr);
+    ok(!ckey.dwColorSpaceLowValue, "Got unexpected value 0x%08x.\n", ckey.dwColorSpaceLowValue);
+    ok(!ckey.dwColorSpaceHighValue, "Got unexpected value 0x%08x.\n", ckey.dwColorSpaceHighValue);
+
+    IDirectDrawSurface_Release(surface),
+    refcount = IDirectDraw2_Release(ddraw);
+    ok(!refcount, "Got unexpected refcount %u.\n", refcount);
+    DestroyWindow(window);
+}
+
 START_TEST(ddraw2)
 {
     IDirectDraw2 *ddraw;
@@ -8511,4 +8960,6 @@ START_TEST(ddraw2)
     test_texturemapblend();
     test_viewport_clear_rect();
     test_color_fill();
+    test_colorkey_precision();
+    test_range_colorkey();
 }

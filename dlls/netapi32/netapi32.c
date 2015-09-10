@@ -780,7 +780,7 @@ static NET_API_STATUS share_info_to_samba( DWORD level, const BYTE *buf, unsigne
 static NET_API_STATUS share_add( LMSTR servername, DWORD level, LPBYTE buf, LPDWORD parm_err )
 {
     char *server = NULL;
-    unsigned char *info;
+    unsigned char *info = NULL;
     NET_API_STATUS status;
 
     if (servername && !(server = strdup_unixcp( servername ))) return ERROR_OUTOFMEMORY;
@@ -1627,7 +1627,12 @@ NET_API_STATUS WINAPI NetWkstaUserGetInfo(LMSTR reserved, DWORD level,
                 (lstrlenW(ui->wkui0_username) + 1) * sizeof(WCHAR),
                 (LPVOID *) bufptr);
             if (nastatus != NERR_Success)
+            {
+                NetApiBufferFree(ui);
                 return nastatus;
+            }
+            ui = (PWKSTA_USER_INFO_0) *bufptr;
+            ui->wkui0_username = (LMSTR) (*bufptr + sizeof(WKSTA_USER_INFO_0));
         }
         break;
     }

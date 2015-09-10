@@ -175,6 +175,18 @@ typedef XID GLXPbuffer;
 /** GLX_NV_float_buffer */
 #define GLX_FLOAT_COMPONENTS_NV           0x20B0
 
+/** GLX_MESA_query_renderer */
+#define GLX_RENDERER_VENDOR_ID_MESA                               0x8183
+#define GLX_RENDERER_DEVICE_ID_MESA                               0x8184
+#define GLX_RENDERER_VERSION_MESA                                 0x8185
+#define GLX_RENDERER_ACCELERATED_MESA                             0x8186
+#define GLX_RENDERER_VIDEO_MEMORY_MESA                            0x8187
+#define GLX_RENDERER_UNIFIED_MEMORY_ARCHITECTURE_MESA             0x8188
+#define GLX_RENDERER_PREFERRED_PROFILE_MESA                       0x8189
+#define GLX_RENDERER_OPENGL_CORE_PROFILE_VERSION_MESA             0x818A
+#define GLX_RENDERER_OPENGL_COMPATIBILITY_PROFILE_VERSION_MESA    0x818B
+#define GLX_RENDERER_OPENGL_ES_PROFILE_VERSION_MESA               0x818C
+#define GLX_RENDERER_OPENGL_ES2_PROFILE_VERSION_MESA              0x818D
 
 struct WineGLInfo {
     const char *glVersion;
@@ -405,6 +417,7 @@ static void  (*pglXFreeMemoryNV)(GLvoid *pointer);
 /* MESA GLX Extensions */
 static void (*pglXCopySubBufferMESA)(Display *dpy, GLXDrawable drawable, int x, int y, int width, int height);
 static int (*pglXSwapIntervalMESA)(unsigned int interval);
+static Bool (*pglXQueryCurrentRendererIntegerMESA)(int attribute, unsigned int *value);
 
 /* Standard OpenGL */
 static void (*pglFinish)(void);
@@ -438,6 +451,7 @@ static int GLXErrorHandler(Display *dpy, XErrorEvent *event, void *arg)
 static BOOL X11DRV_WineGL_InitOpenglInfo(void)
 {
     static const char legacy_extensions[] = " WGL_EXT_extensions_string WGL_EXT_swap_control";
+    static const char direct_extension[] = " WINE_EXT_direct_rendering";
 
     int screen = DefaultScreen(gdi_display);
     Window win = 0, root = 0;
@@ -489,10 +503,13 @@ static BOOL X11DRV_WineGL_InitOpenglInfo(void)
     }
     gl_renderer = (const char *)opengl_funcs.gl.p_glGetString(GL_RENDERER);
     WineGLInfo.glVersion = (const char *) opengl_funcs.gl.p_glGetString(GL_VERSION);
+    WineGLInfo.glxDirect = pglXIsDirect(gdi_display, ctx);
     str = (const char *) opengl_funcs.gl.p_glGetString(GL_EXTENSIONS);
-    WineGLInfo.glExtensions = HeapAlloc(GetProcessHeap(), 0, strlen(str)+sizeof(legacy_extensions));
+    WineGLInfo.glExtensions = HeapAlloc(GetProcessHeap(), 0, strlen(str)+sizeof(legacy_extensions)+sizeof(direct_extension));
     strcpy(WineGLInfo.glExtensions, str);
     strcat(WineGLInfo.glExtensions, legacy_extensions);
+    if (WineGLInfo.glxDirect)
+        strcat(WineGLInfo.glExtensions, direct_extension);
 
     /* Get the common GLX version supported by GLX client and server ( major/minor) */
     pglXQueryVersion(gdi_display, &WineGLInfo.glxVersion[0], &WineGLInfo.glxVersion[1]);
@@ -506,7 +523,7 @@ static BOOL X11DRV_WineGL_InitOpenglInfo(void)
     WineGLInfo.glxClientExtensions = pglXGetClientString(gdi_display, GLX_EXTENSIONS);
 
     WineGLInfo.glxExtensions = pglXQueryExtensionsString(gdi_display, screen);
-    WineGLInfo.glxDirect = pglXIsDirect(gdi_display, ctx);
+
 
     TRACE("GL version             : %s.\n", WineGLInfo.glVersion);
     TRACE("GL renderer            : %s.\n", gl_renderer);
@@ -658,6 +675,7 @@ static BOOL has_opengl(void)
     /* NV GLX Extension */
     LOAD_FUNCPTR(glXAllocateMemoryNV);
     LOAD_FUNCPTR(glXFreeMemoryNV);
+    LOAD_FUNCPTR(glXQueryCurrentRendererIntegerMESA);
 #undef LOAD_FUNCPTR
 
     if(!X11DRV_WineGL_InitOpenglInfo()) goto failed;
@@ -1436,11 +1454,14 @@ static BOOL set_pixel_format(HDC hdc, int format, BOOL allow_change)
 
     TRACE("(%p,%d)\n", hdc, format);
 
-    if (!hwnd || hwnd == GetDesktopWindow())
+    if (!hwnd)
     {
         WARN( "not a valid window DC %p/%p\n", hdc, hwnd );
         return FALSE;
     }
+
+    if (hwnd == GetDesktopWindow())
+        FIXME("Using desktop window for OpenGL is not supported on windows\n");
 
     fmt = get_pixel_format(gdi_display, format, FALSE /* Offscreen */);
     if (!fmt)
@@ -1947,18 +1968,16 @@ static BOOL glxdrv_wglShareLists(struct wgl_context *org, struct wgl_context *de
      * current or when it hasn't shared display lists before.
      */
 
-    if((org->has_been_current && dest->has_been_current) || dest->has_been_current)
-    {
-        ERR("Could not share display lists, one of the contexts has been current already !\n");
-        return FALSE;
-    }
-    else if(dest->sharing)
+    if(dest->sharing)
     {
         ERR("Could not share display lists because hglrc2 has already shared lists before\n");
         return FALSE;
     }
     else
     {
+        if(dest->has_been_current)
+            ERR("Recreating OpenGL context to share display lists, although the context has been current!\n");
+
         describeContext(org);
         describeContext(dest);
 
@@ -1983,6 +2002,9 @@ static void wglFinish(void)
     escape.code = X11DRV_FLUSH_GL_DRAWABLE;
     escape.gl_drawable = 0;
 
+#if defined(STAGING_CSMT)
+    ERR("glFinish\n");
+#endif /* STAGING_CSMT */
     if ((gl = get_gl_drawable( WindowFromDC( ctx->hdc ), 0 )))
     {
         switch (gl->type)
@@ -2008,6 +2030,9 @@ static void wglFlush(void)
     escape.code = X11DRV_FLUSH_GL_DRAWABLE;
     escape.gl_drawable = 0;
 
+#if defined(STAGING_CSMT)
+    ERR("glFlush\n");
+#endif /* STAGING_CSMT */
     if ((gl = get_gl_drawable( WindowFromDC( ctx->hdc ), 0 )))
     {
         switch (gl->type)
@@ -3061,6 +3086,50 @@ static BOOL X11DRV_wglSwapIntervalEXT(int interval)
 }
 
 /**
+ * X11DRV_wglGetPCIInfoWINE
+ *
+ * WINE-specific function to get the PCI vendor / device id.
+ */
+static BOOL X11DRV_wglGetPCIInfoWINE(unsigned int *vendor, unsigned int *device)
+{
+    TRACE("(%p, %p)\n", vendor, device);
+
+    if (!pglXQueryCurrentRendererIntegerMESA || !vendor || !device)
+        return FALSE;
+
+    if (!pglXQueryCurrentRendererIntegerMESA(GLX_RENDERER_VENDOR_ID_MESA, vendor))
+        return FALSE;
+
+    if (!pglXQueryCurrentRendererIntegerMESA(GLX_RENDERER_DEVICE_ID_MESA, device))
+        return FALSE;
+
+    return TRUE;
+}
+
+/**
+ * X11DRV_wglGetMemoryInfoWINE
+ *
+ * WINE-specific function to get the available video memory (in MB).
+ */
+static BOOL X11DRV_wglGetMemoryInfoWINE(unsigned int *memory)
+{
+    TRACE("(%p)\n", memory);
+
+    if (!pglXQueryCurrentRendererIntegerMESA || !memory)
+        return FALSE;
+
+    if (!pglXQueryCurrentRendererIntegerMESA(GLX_RENDERER_VIDEO_MEMORY_MESA, memory))
+        return FALSE;
+
+    /* Some MESA drivers return a video memory of 0 MB. This doesn't make any sense,
+     * so fall back to other methods. */
+    if (!*memory)
+        return FALSE;
+
+    return TRUE;
+}
+
+/**
  * X11DRV_wglSetPixelFormatWINE
  *
  * WGL_WINE_pixel_format_passthrough: wglSetPixelFormatWINE
@@ -3210,6 +3279,13 @@ static void X11DRV_WineGL_LoadExtensions(void)
         has_swap_method = TRUE;
 
     /* WINE-specific WGL Extensions */
+
+    if (has_extension(WineGLInfo.glxExtensions, "GLX_MESA_query_renderer"))
+    {
+        register_extension( "WGL_WINE_gpu_info" );
+        opengl_funcs.ext.p_wglGetPCIInfoWINE = X11DRV_wglGetPCIInfoWINE;
+        opengl_funcs.ext.p_wglGetMemoryInfoWINE = X11DRV_wglGetMemoryInfoWINE;
+    }
 
     /* In WineD3D we need the ability to set the pixel format more than once (e.g. after a device reset).
      * The default wglSetPixelFormat doesn't allow this, so add our own which allows it.

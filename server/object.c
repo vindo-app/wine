@@ -44,7 +44,6 @@ struct object_name
 {
     struct list         entry;           /* entry in the hash list */
     struct object      *obj;             /* object owning this name */
-    struct object      *parent;          /* parent object */
     data_size_t         len;             /* name length in bytes */
     WCHAR               name[1];
 };
@@ -136,18 +135,15 @@ static struct object_name *alloc_name( const struct unicode_str *name )
     if ((ptr = mem_alloc( sizeof(*ptr) + name->len - sizeof(ptr->name) )))
     {
         ptr->len = name->len;
-        ptr->parent = NULL;
         memcpy( ptr->name, name->str, name->len );
     }
     return ptr;
 }
 
 /* free the name of an object */
-static void free_name( struct object *obj )
+static void free_name( struct object_name *ptr )
 {
-    struct object_name *ptr = obj->name;
     list_remove( &ptr->entry );
-    if (ptr->parent) release_object( ptr->parent );
     free( ptr );
 }
 
@@ -179,23 +175,26 @@ WCHAR *get_object_full_name( struct object *obj, data_size_t *ret_len )
     data_size_t len = 0;
     char *ret;
 
-    while (ptr && ptr->name)
+    while (ptr)
     {
         struct object_name *name = ptr->name;
-        len += name->len + sizeof(WCHAR);
-        ptr = name->parent;
+        if (name) len += name->len + sizeof(WCHAR);
+        ptr = ptr->parent;
     }
     if (!len) return NULL;
     if (!(ret = malloc( len ))) return NULL;
 
     *ret_len = len;
-    while (obj && obj->name)
+    while (obj)
     {
         struct object_name *name = obj->name;
-        memcpy( ret + len - name->len, name->name, name->len );
-        len -= name->len + sizeof(WCHAR);
-        memcpy( ret + len, &backslash, sizeof(WCHAR) );
-        obj = name->parent;
+        if (name)
+        {
+            memcpy( ret + len - name->len, name->name, name->len );
+            len -= name->len + sizeof(WCHAR);
+            memcpy( ret + len, &backslash, sizeof(WCHAR) );
+        }
+        obj = obj->parent;
     }
     return (WCHAR *)ret;
 }
@@ -208,6 +207,7 @@ void *alloc_object( const struct object_ops *ops )
     {
         obj->refcount     = 1;
         obj->handle_count = 0;
+        obj->parent       = NULL;
         obj->ops          = ops;
         obj->name         = NULL;
         obj->sd           = NULL;
@@ -223,14 +223,14 @@ void *alloc_object( const struct object_ops *ops )
 void *create_object( struct namespace *namespace, const struct object_ops *ops,
                      const struct unicode_str *name, struct object *parent )
 {
+    struct object_name *name_ptr = NULL;
     struct object *obj;
-    struct object_name *name_ptr;
 
-    if (!(name_ptr = alloc_name( name ))) return NULL;
+    if (namespace && !(name_ptr = alloc_name( name ))) return NULL;
     if ((obj = alloc_object( ops )))
     {
-        set_object_name( namespace, obj, name_ptr );
-        if (parent) name_ptr->parent = grab_object( parent );
+        if (namespace) set_object_name( namespace, obj, name_ptr );
+        if (parent) obj->parent = grab_object( parent );
     }
     else
         free( name_ptr );
@@ -278,8 +278,10 @@ void dump_object_name( struct object *obj )
 /* unlink a named object from its namespace, without freeing the object itself */
 void unlink_named_object( struct object *obj )
 {
-    if (obj->name) free_name( obj );
+    if (obj->name) free_name( obj->name );
+    if (obj->parent) release_object( obj->parent );
     obj->name = NULL;
+    obj->parent = NULL;
 }
 
 /* mark an object as being stored statically, i.e. only released at shutdown */
@@ -311,7 +313,8 @@ void release_object( void *ptr )
         /* if the refcount is 0, nobody can be in the wait queue */
         assert( list_empty( &obj->wait_queue ));
         obj->ops->destroy( obj );
-        if (obj->name) free_name( obj );
+        if (obj->name) free_name( obj->name );
+        if (obj->parent) release_object( obj->parent );
         free( obj->sd );
 #ifdef DEBUG_OBJECTS
         list_remove( &obj->obj_list );
@@ -425,16 +428,15 @@ struct security_descriptor *default_get_sd( struct object *obj )
     return obj->sd;
 }
 
-int set_sd_defaults_from_token( struct object *obj, const struct security_descriptor *sd,
-                                unsigned int set_info, struct token *token )
+struct security_descriptor *set_sd_from_token_internal( const struct security_descriptor *sd,
+                                                        const struct security_descriptor *old_sd,
+                                                        unsigned int set_info, struct token *token )
 {
     struct security_descriptor new_sd, *new_sd_ptr;
     int present;
     const SID *owner = NULL, *group = NULL;
     const ACL *sacl, *dacl;
     char *ptr;
-
-    if (!set_info) return 1;
 
     new_sd.control = sd->control & ~SE_SELF_RELATIVE;
 
@@ -443,10 +445,10 @@ int set_sd_defaults_from_token( struct object *obj, const struct security_descri
         owner = sd_get_owner( sd );
         new_sd.owner_len = sd->owner_len;
     }
-    else if (obj->sd && obj->sd->owner_len)
+    else if (old_sd && old_sd->owner_len)
     {
-        owner = sd_get_owner( obj->sd );
-        new_sd.owner_len = obj->sd->owner_len;
+        owner = sd_get_owner( old_sd );
+        new_sd.owner_len = old_sd->owner_len;
     }
     else if (token)
     {
@@ -460,10 +462,10 @@ int set_sd_defaults_from_token( struct object *obj, const struct security_descri
         group = sd_get_group( sd );
         new_sd.group_len = sd->group_len;
     }
-    else if (obj->sd && obj->sd->group_len)
+    else if (old_sd && old_sd->group_len)
     {
-        group = sd_get_group( obj->sd );
-        new_sd.group_len = obj->sd->group_len;
+        group = sd_get_group( old_sd );
+        new_sd.group_len = old_sd->group_len;
     }
     else if (token)
     {
@@ -478,10 +480,10 @@ int set_sd_defaults_from_token( struct object *obj, const struct security_descri
         new_sd.sacl_len = sd->sacl_len;
     else
     {
-        if (obj->sd) sacl = sd_get_sacl( obj->sd, &present );
+        if (old_sd) sacl = sd_get_sacl( old_sd, &present );
 
-        if (obj->sd && present)
-            new_sd.sacl_len = obj->sd->sacl_len;
+        if (old_sd && present)
+            new_sd.sacl_len = old_sd->sacl_len;
         else
             new_sd.sacl_len = 0;
     }
@@ -492,10 +494,10 @@ int set_sd_defaults_from_token( struct object *obj, const struct security_descri
         new_sd.dacl_len = sd->dacl_len;
     else
     {
-        if (obj->sd) dacl = sd_get_dacl( obj->sd, &present );
+        if (old_sd) dacl = sd_get_dacl( old_sd, &present );
 
-        if (obj->sd && present)
-            new_sd.dacl_len = obj->sd->dacl_len;
+        if (old_sd && present)
+            new_sd.dacl_len = old_sd->dacl_len;
         else if (token)
         {
             dacl = token_get_default_dacl( token );
@@ -506,7 +508,7 @@ int set_sd_defaults_from_token( struct object *obj, const struct security_descri
 
     ptr = mem_alloc( sizeof(new_sd) + new_sd.owner_len + new_sd.group_len +
                      new_sd.sacl_len + new_sd.dacl_len );
-    if (!ptr) return 0;
+    if (!ptr) return NULL;
     new_sd_ptr = (struct security_descriptor*)ptr;
 
     memcpy( ptr, &new_sd, sizeof(new_sd) );
@@ -519,9 +521,25 @@ int set_sd_defaults_from_token( struct object *obj, const struct security_descri
     ptr += new_sd.sacl_len;
     memcpy( ptr, dacl, new_sd.dacl_len );
 
-    free( obj->sd );
-    obj->sd = new_sd_ptr;
-    return 1;
+    return new_sd_ptr;
+}
+
+int set_sd_defaults_from_token( struct object *obj, const struct security_descriptor *sd,
+                                unsigned int set_info, struct token *token )
+{
+    struct security_descriptor *new_sd;
+
+    if (!set_info) return 1;
+
+    new_sd = set_sd_from_token_internal( sd, obj->sd, set_info, token );
+    if (new_sd)
+    {
+        free( obj->sd );
+        obj->sd = new_sd;
+        return 1;
+    }
+
+    return 0;
 }
 
 /** Set the security descriptor using the current primary token for defaults. */

@@ -49,7 +49,6 @@
 @ cdecl wined3d_device_end_stateblock(ptr ptr)
 @ cdecl wined3d_device_evict_managed_resources(ptr)
 @ cdecl wined3d_device_get_available_texture_mem(ptr)
-@ cdecl wined3d_device_get_back_buffer(ptr long long long ptr)
 @ cdecl wined3d_device_get_base_vertex_index(ptr)
 @ cdecl wined3d_device_get_clip_plane(ptr long ptr)
 @ cdecl wined3d_device_get_clip_status(ptr ptr)
@@ -222,6 +221,8 @@
 @ cdecl wined3d_stateblock_decref(ptr)
 @ cdecl wined3d_stateblock_incref(ptr)
 
+@ cdecl wined3d_strictdrawing_set(long)
+
 @ cdecl wined3d_surface_blt(ptr ptr ptr ptr long ptr long)
 @ cdecl wined3d_surface_decref(ptr)
 @ cdecl wined3d_surface_from_resource(ptr)
@@ -292,3 +293,11 @@
 @ cdecl wined3d_volume_map(ptr ptr ptr long)
 @ cdecl wined3d_volume_preload(ptr)
 @ cdecl wined3d_volume_unmap(ptr)
+
+@ cdecl wined3d_dxtn_supported()
+@ cdecl wined3d_dxt1_decode(ptr ptr long long long long long)
+@ cdecl wined3d_dxt1_encode(ptr ptr long long long long long)
+@ cdecl wined3d_dxt3_decode(ptr ptr long long long long long)
+@ cdecl wined3d_dxt3_encode(ptr ptr long long long long long)
+@ cdecl wined3d_dxt5_decode(ptr ptr long long long long long)
+@ cdecl wined3d_dxt5_encode(ptr ptr long long long long long)

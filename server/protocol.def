@@ -69,6 +69,21 @@ struct request_max_size
 #define FIRST_USER_HANDLE 0x0020  /* first possible value for low word of user handle */
 #define LAST_USER_HANDLE  0xffef  /* last possible value for low word of user handle */
 
+/* wineserver global shared memory block */
+typedef struct
+{
+    unsigned int last_input_time;       /* last input time */
+    unsigned int foreground_wnd_epoch;  /* counter to invalidate foreground window */
+} shmglobal_t;
+
+/* wineserver local shared memory block */
+typedef struct
+{
+    int             queue_bits;     /* queue wake bits */
+    user_handle_t   input_focus;    /* focus window */
+    user_handle_t   input_capture;  /* capture window */
+    user_handle_t   input_active;   /* active window */
+} shmlocal_t;
 
 /* debug event data */
 typedef union
@@ -715,8 +730,12 @@ struct rawinput_device
     unsigned int thread_attr;    /* attributes for thread object */
     cpu_type_t   cpu;            /* CPU that the new process will use */
     data_size_t  info_size;      /* size of startup info */
+    data_size_t  env_size;       /* size of the environment */
+    data_size_t  process_sd_size;/* size of the process security descriptor */
     VARARG(info,startup_info,info_size); /* startup information */
-    VARARG(env,unicode_str);     /* environment for new process */
+    VARARG(env,unicode_str,env_size);                       /* environment for new process */
+    VARARG(process_sd,security_descriptor,process_sd_size); /* security descriptor to set on the process */
+    VARARG(thread_sd,security_descriptor);                  /* security descriptor to set on the thread */
 @REPLY
     obj_handle_t info;           /* new process info handle */
     process_id_t pid;            /* process id */
@@ -855,6 +874,8 @@ struct rawinput_device
 @REPLY
     timeout_t    creation_time; /* thread creation time */
     timeout_t    exit_time;     /* thread exit time */
+    int          unix_pid;      /* thread native pid */
+    int          unix_tid;      /* thread native pid */
 @END
 
 
@@ -942,6 +963,9 @@ struct rawinput_device
     obj_handle_t handle;       /* handle to close */
 @END
 
+/* Close all sockets for the current process */
+@REQ(socket_cleanup)
+@END
 
 /* Set a handle information */
 @REQ(set_handle_info)
@@ -1203,6 +1227,12 @@ enum server_fd_type
 };
 
 
+/* Get file descriptor for shared memory */
+@REQ(get_shared_memory)
+    thread_id_t tid;            /* thread id or 0 */
+@END
+
+
 /* Flush a file buffers */
 @REQ(flush)
     int            blocking;    /* whether it's a blocking flush */
@@ -1263,6 +1293,12 @@ enum server_fd_type
 @END
 
 
+/* Mark a socket to be reused after "closed" */
+@REQ(reuse_socket)
+    obj_handle_t handle;       /* handle to the socket */
+@END
+
+
 /* Set socket event parameters */
 @REQ(set_socket_event)
     obj_handle_t  handle;        /* handle to the socket */
@@ -1293,6 +1329,7 @@ enum server_fd_type
     int family;                 /* family, see socket manpage */
     int type;                   /* type, see socket manpage */
     int protocol;               /* protocol, see socket manpage */
+    timeout_t connect_time;     /* time the socket was connected (relative) */
 @END
 
 
@@ -1674,6 +1711,13 @@ enum char_info_mode
     int          protect;       /* protection flags */
     int          header_size;   /* header size (for VPROT_IMAGE mapping) */
     client_ptr_t base;          /* default base addr (for VPROT_IMAGE mapping) */
+    client_ptr_t entry;         /* entry point addr (for PE image mapping) */
+    short int    subsystem;     /* subsystem (for PE image mapping) */
+    short int    major_subsystem; /* major subsystem version (for PE image mapping) */
+    short int    minor_subsystem; /* minor subsystem version (for PE image mapping) */
+    short int    characteristics; /* image characteristics (for PE image mapping) */
+    short int    dll_characteristics; /* dll characteristics (for PE image mapping) */
+    short int    machine;       /* image machine type (for PE image mapping) */
     obj_handle_t mapping;       /* duplicate mapping handle unless removable */
     obj_handle_t shared_file;   /* shared mapping file handle */
 @END
@@ -2377,6 +2421,7 @@ enum message_type
     unsigned int   flags;
     VARARG(objattr,object_attributes); /* object attributes */
 @REPLY
+    unsigned int   flags;
     obj_handle_t   handle;       /* handle to the pipe */
 @END
 
@@ -2384,6 +2429,7 @@ enum message_type
 #define NAMED_PIPE_MESSAGE_STREAM_WRITE 0x0001
 #define NAMED_PIPE_MESSAGE_STREAM_READ  0x0002
 #define NAMED_PIPE_NONBLOCKING_MODE     0x0004
+#define NAMED_PIPE_CLOSED_HANDLE        0x0008
 #define NAMED_PIPE_SERVER_END           0x8000
 
 /* Get named pipe information by handle */
@@ -3538,6 +3584,13 @@ enum coords_relative
     obj_handle_t rootdir;         /* root directory */
     int          link;            /* link instead of renaming */
     VARARG(filename,string);      /* new file name */
+@END
+
+
+/* set fd eof information */
+@REQ(set_fd_eof_info)
+    obj_handle_t handle;        /* handle to a file or directory */
+    file_pos_t   eof;           /* offset of eof of file */
 @END
 
 
