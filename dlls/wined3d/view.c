@@ -33,11 +33,6 @@ ULONG CDECL wined3d_rendertarget_view_incref(struct wined3d_rendertarget_view *v
     return refcount;
 }
 
-void wined3d_rendertarget_view_destroy(struct wined3d_rendertarget_view *view)
-{
-    HeapFree(GetProcessHeap(), 0, view);
-}
-
 ULONG CDECL wined3d_rendertarget_view_decref(struct wined3d_rendertarget_view *view)
 {
     ULONG refcount = InterlockedDecrement(&view->refcount);
@@ -46,13 +41,11 @@ ULONG CDECL wined3d_rendertarget_view_decref(struct wined3d_rendertarget_view *v
 
     if (!refcount)
     {
-        struct wined3d_device *device = view->resource->device;
-
         /* Call wined3d_object_destroyed() before releasing the resource,
          * since releasing the resource may end up destroying the parent. */
         view->parent_ops->wined3d_object_destroyed(view->parent);
         wined3d_resource_decref(view->resource);
-        wined3d_cs_emit_view_destroy(device->cs, view);
+        HeapFree(GetProcessHeap(), 0, view);
     }
 
     return refcount;
