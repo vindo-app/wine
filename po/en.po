@@ -13791,12 +13791,20 @@ msgstr "Program Error Details"
 msgid ""
 "If this problem is not present under Windows and has not been reported yet, "
 "you can save the detailed information to a file using the \"Save As\" "
+<<<<<<< HEAD
 "button, then <a href=\"http://wiki.winehq.org/Bugs\">file a bug report</a> "
+=======
+"button, then <a href=\"https://github.com/vindo-app/vindo/issues\">file a bug report</a> "
+>>>>>>> 8c255b7... make it not look like wine staging
 "and attach that file to the report."
 msgstr ""
 "If this problem is not present under Windows and has not been reported yet, "
 "you can save the detailed information to a file using the \"Save As\" "
+<<<<<<< HEAD
 "button, then <a href=\"http://wiki.winehq.org/Bugs\">file a bug report</a> "
+=======
+"button, then <a href=\"https://github.com/vindo-app/vindo/issues\">file a bug report</a> "
+>>>>>>> 8c255b7... make it not look like wine staging
 "and attach that file to the report."
 
 #: winedbg.rc:38

@@ -13762,13 +13762,22 @@ msgstr "Ohjelman virhetiedot"
 msgid ""
 "If this problem is not present under Windows and has not been reported yet, "
 "you can save the detailed information to a file using the \"Save As\" "
+<<<<<<< HEAD
 "button, then <a href=\"http://wiki.winehq.org/Bugs\">file a bug report</a> "
+=======
+"button, then <a href=\"https://github.com/vindo-app/vindo/issues\">file a bug report</a> "
+>>>>>>> 8c255b7... make it not look like wine staging
 "and attach that file to the report."
 msgstr ""
 "Jos tätä ongelmaa ei esiinny Windowsin kanssa eikä sitä ole vielä "
 "raportoitu, voit tallentaa yksityiskohtaisemmat tiedot tiedostoon Tallenna "
+<<<<<<< HEAD
 "nimellä -kohdassa ja sitten <a href=\"http://wiki.winehq.org/Bugs\">lähettää "
 "virheraportin</a> ja liittää tiedoston raporttiin."
+=======
+"nimellä -kohdassa ja sitten <a href=\"https://github.com/vindo-app/vindo/issues"
+"\">lähettää virheraportin</a> ja liittää tiedoston raporttiin."
+>>>>>>> 8c255b7... make it not look like wine staging
 
 #: winedbg.rc:38
 msgid "Wine program crash"

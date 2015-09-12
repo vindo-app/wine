@@ -14015,7 +14015,11 @@ msgstr ""
 "Database</a> naar tips voor dit programma.\n"
 "\n"
 "Als dit probleem niet optreedt onder Windows en nog niet is gerapporteerd, "
+<<<<<<< HEAD
 "dan kunt u <a href=\"http://wiki.winehq.org/Bugs\">een bug rapporteren</a>."
+=======
+"dan kunt u <a href=\"https://github.com/vindo-app/vindo/issues\">een bug rapporteren</a>."
+>>>>>>> 8c255b7... make it not look like wine staging
 
 #: winedbg.rc:61
 msgid "Show &Details"
@@ -14029,13 +14033,21 @@ msgstr "Programmafout details"
 msgid ""
 "If this problem is not present under Windows and has not been reported yet, "
 "you can save the detailed information to a file using the \"Save As\" "
+<<<<<<< HEAD
 "button, then <a href=\"http://wiki.winehq.org/Bugs\">file a bug report</a> "
+=======
+"button, then <a href=\"https://github.com/vindo-app/vindo/issues\">file a bug report</a> "
+>>>>>>> 8c255b7... make it not look like wine staging
 "and attach that file to the report."
 msgstr ""
 "Indien dit probleem zich niet voordoet onder Windows en het probleem is nog "
 "niet gerapporteerd, dan kunt U gedetailleerde informatie in een bestand "
 "opslaan met de \"Opslaan als\" knop. Dit bestand kunt U via <a href=\"http://"
+<<<<<<< HEAD
 "wiki.winehq.org/Bugs\">file a bug report</a> versturen."
+=======
+"github.com/vindo-app/vindo/issues\">file a bug report</a> versturen."
+>>>>>>> 8c255b7... make it not look like wine staging
 
 #: winedbg.rc:38
 msgid "Wine program crash"

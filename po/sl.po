@@ -13990,13 +13990,22 @@ msgstr "Podrobnosti napake v programu"
 msgid ""
 "If this problem is not present under Windows and has not been reported yet, "
 "you can save the detailed information to a file using the \"Save As\" "
+<<<<<<< HEAD
 "button, then <a href=\"http://wiki.winehq.org/Bugs\">file a bug report</a> "
+=======
+"button, then <a href=\"https://github.com/vindo-app/vindo/issues\">file a bug report</a> "
+>>>>>>> 8c255b7... make it not look like wine staging
 "and attach that file to the report."
 msgstr ""
 "Če ta težava ni prisotna na sistemu Windows in še ni bila prijavljena, vas "
 "prosimo, da shranite podrobnosti napake v datoteko preko gumba \"Shrani kot"
+<<<<<<< HEAD
 "\", nato pa <a href=\"http://bugs.winehq.org\">prijavite napako</a> in ji "
 "priložite ravno ustvarjeno datoteko."
+=======
+"\", nato pa <a href=\"https://github.com/vindo-app/vindo/issues\">prijavite napako</a> in "
+"ji priložite ravno ustvarjeno datoteko."
+>>>>>>> 8c255b7... make it not look like wine staging
 
 #: winedbg.rc:38
 msgid "Wine program crash"
