@@ -48,7 +48,8 @@ AddReg=\
     SessionMgr,\
     Tapi,\
     Timezones,\
-    LicenseInformation
+    LicenseInformation,\
+    VindoHacks
 
 [DefaultInstall.NT]
 RegisterDlls=RegisterDllsSection
@@ -73,7 +74,8 @@ AddReg=\
     Tapi,\
     Timezones,\
     VersionInfo,\
-    LicenseInformation
+    LicenseInformation,\
+    VindoHacks
 
 [DefaultInstall.ntamd64]
 RegisterDlls=RegisterDllsSection
@@ -100,7 +102,8 @@ AddReg=\
     Tapi,\
     Timezones,\
     VersionInfo.ntamd64,\
-    LicenseInformation
+    LicenseInformation,\
+    VindoHacks
 
 [Wow64Install]
 RegisterDlls=RegisterDllsSection
@@ -115,7 +118,8 @@ AddReg=\
     Misc,\
     Tapi,\
     VersionInfo.ntamd64,\
-    LicenseInformation
+    LicenseInformation,\
+    VindoHacks
 
 [DefaultInstall.Services]
 AddService=BITS,0,BITSService
@@ -3427,3 +3431,8 @@ HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-Shanghai-EnableGame",0x1
 HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-Solitaire-EnableGame",0x10001,0x00000001
 HKLM,Software\Wine\LicenseInformation,"Shell-InBoxGames-SpiderSolitaire-EnableGame",0x10001,0x00000001
 HKLM,Software\Wine\LicenseInformation,"Shell-PremiumInBoxGames-Chess-EnableGame",0x10001,0x00000001
+
+[VindoHacks]
+HKLM,Software\Microsoft\Windows\CurrentVersion\RunOnce,"vindo_prefix_init",,"vindo_prefix_init"
+HKCU,Software\Wine\DllRedirects,"wined3d",,"wined3d-csmt.dll"
+
