@@ -28,8 +28,8 @@ function configure() {
 	run ./configure --prefix=$prefix --disable-dependency-tracking $@
 }
 function make_install() {
-	run make
-	run make install
+	run make -j4
+	run make install -j4
 }
 
 # setup
@@ -105,7 +105,7 @@ run cd ..
 rm -rf lcms*
 
 # and finally, wine!
-configure --without-x --without-gettext
+configure --without-x --without-gettext --disable-tests
 make_install
 
 # copy the share folder
