@@ -73,6 +73,7 @@ void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
     HRESULT (WINAPI *DllRegisterServer)(void);
     HRESULT result;
 
+    TRACE("loading dll %s\n", debugstr_w(dll));
     TRY(module = LoadLibraryExW(dst_file, 0, LOAD_WITH_ALTERED_SEARCH_PATH));
     if (DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer")) {
         result = DllRegisterServer();
