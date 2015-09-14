@@ -1103,7 +1103,6 @@ static HWND show_wait_window(void)
     MultiByteToWideChar( CP_UNIXCP, 0, config_dir, -1, name, len );
     hwnd = CreateDialogParamW( GetModuleHandleW(0), MAKEINTRESOURCEW(IDD_WAITDLG), 0,
                                wait_dlgproc, (LPARAM)name );
-    ShowWindow( hwnd, SW_SHOWNORMAL );
     HeapFree( GetProcessHeap(), 0, name );
     return hwnd;
 }
