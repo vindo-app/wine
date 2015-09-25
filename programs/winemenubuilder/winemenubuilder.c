@@ -199,10 +199,8 @@ struct rb_string_entry
 
 DEFINE_GUID(CLSID_WICIcnsEncoder, 0x312fb6f1,0xb767,0x409d,0x8a,0x6d,0x0f,0xc1,0x54,0xd4,0xf0,0x5c);
 
-static char *xdg_config_dir;
-static char *xdg_data_dir;
+static char *data_dir;
 static char *xdg_desktop_dir;
-
 
 /* Utility routines */
 static unsigned short crc16(const char* string)
@@ -1321,7 +1319,7 @@ static HRESULT platform_write_icon(IStream *icoStream, ICONDIRENTRY *iconDirEntr
         hr = E_OUTOFMEMORY;
         goto end;
     }
-    iconsDir = heap_printf("%s/icons/hicolor", xdg_data_dir);
+    iconsDir = heap_printf("%s/icons/hicolor", data_dir);
     if (iconsDir == NULL)
     {
         hr = E_OUTOFMEMORY;
@@ -1561,7 +1559,7 @@ static BOOL write_menu_file(const char *unix_link, const char *filename)
 
     while (1)
     {
-        tempfilename = heap_printf("%s/wine-menu-XXXXXX", xdg_config_dir);
+        tempfilename = heap_printf("%s/wine-menu-XXXXXX", data_dir);
         if (tempfilename)
         {
             int tempfd = mkstemps(tempfilename, 0);
@@ -1607,7 +1605,7 @@ static BOOL write_menu_file(const char *unix_link, const char *filename)
             write_xml_text(tempfile, name);
             fprintf(tempfile, ".directory</Directory>\n");
             dir_file_name = heap_printf("%s/desktop-directories/%s%s.directory",
-                xdg_data_dir, count ? "" : "wine-", name);
+                data_dir, count ? "" : "wine-", name);
             if (dir_file_name)
             {
                 if (stat(dir_file_name, &st) != 0 && errno == ENOENT)
@@ -1630,7 +1628,7 @@ static BOOL write_menu_file(const char *unix_link, const char *filename)
          fprintf(tempfile, "  </Menu>\n");
     fprintf(tempfile, "</Menu>\n");
 
-    menuPath = heap_printf("%s/%s", xdg_config_dir, name);
+    menuPath = heap_printf("%s/%s", data_dir, name);
     if (menuPath == NULL) goto end;
     strcpy(menuPath + strlen(menuPath) - strlen(".desktop"), ".menu");
     ret = TRUE;
@@ -1669,7 +1667,7 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
     else
         ++linkname;
 
-    desktopPath = heap_printf("%s/applications/wine/%s.desktop", xdg_data_dir, link);
+    desktopPath = heap_printf("%s/applications/wine/%s.desktop", data_dir, link);
     if (!desktopPath)
     {
         WINE_WARN("out of memory creating menu entry\n");
@@ -2042,11 +2040,11 @@ static BOOL next_line(FILE *file, char **line, int *size)
     return FALSE;
 }
 
-static BOOL add_mimes(const char *xdg_data_dir, struct list *mime_types)
+static BOOL add_mimes(const char *data_dir, struct list *mime_types)
 {
     char *globs_filename = NULL;
     BOOL ret = TRUE;
-    globs_filename = heap_printf("%s/mime/globs", xdg_data_dir);
+    globs_filename = heap_printf("%s/mime/globs", data_dir);
     if (globs_filename)
     {
         FILE *globs_file = fopen(globs_filename, "r");
@@ -2115,18 +2113,18 @@ static void free_native_mime_types(struct list *native_mime_types)
 
 static BOOL build_native_mime_types(const char *xdg_data_home, struct list **mime_types)
 {
-    char *xdg_data_dirs;
+    char *data_dirs;
     BOOL ret;
 
     *mime_types = NULL;
 
-    xdg_data_dirs = getenv("XDG_DATA_DIRS");
-    if (xdg_data_dirs == NULL)
-        xdg_data_dirs = heap_printf("/usr/local/share/:/usr/share/");
+    data_dirs = getenv("data_dirS");
+    if (data_dirs == NULL)
+        data_dirs = heap_printf("/usr/local/share/:/usr/share/");
     else
-        xdg_data_dirs = strdupA(xdg_data_dirs);
+        data_dirs = strdupA(data_dirs);
 
-    if (xdg_data_dirs)
+    if (data_dirs)
     {
         *mime_types = HeapAlloc(GetProcessHeap(), 0, sizeof(struct list));
         if (*mime_types)
@@ -2138,7 +2136,7 @@ static BOOL build_native_mime_types(const char *xdg_data_home, struct list **mim
             ret = add_mimes(xdg_data_home, *mime_types);
             if (ret)
             {
-                for (begin = xdg_data_dirs; (end = strchr(begin, ':')); begin = end + 1)
+                for (begin = data_dirs; (end = strchr(begin, ':')); begin = end + 1)
                 {
                     *end = '\0';
                     ret = add_mimes(begin, *mime_types);
@@ -2152,7 +2150,7 @@ static BOOL build_native_mime_types(const char *xdg_data_home, struct list **mim
         }
         else
             ret = FALSE;
-        HeapFree(GetProcessHeap(), 0, xdg_data_dirs);
+        HeapFree(GetProcessHeap(), 0, data_dirs);
     }
     else
         ret = FALSE;
@@ -3360,7 +3358,7 @@ static void RefreshFileTypeAssociations(void)
         goto end;
     }
 
-    mime_dir = heap_printf("%s/mime", xdg_data_dir);
+    mime_dir = heap_printf("%s/mime", data_dir);
     if (mime_dir == NULL)
     {
         WINE_ERR("out of memory\n");
@@ -3376,7 +3374,7 @@ static void RefreshFileTypeAssociations(void)
     }
     create_directories(packages_dir);
 
-    applications_dir = heap_printf("%s/applications", xdg_data_dir);
+    applications_dir = heap_printf("%s/applications", data_dir);
     if (applications_dir == NULL)
     {
         WINE_ERR("out of memory\n");
@@ -3384,7 +3382,7 @@ static void RefreshFileTypeAssociations(void)
     }
     create_directories(applications_dir);
 
-    hasChanged = generate_associations(xdg_data_dir, packages_dir, applications_dir);
+    hasChanged = generate_associations(data_dir, packages_dir, applications_dir);
     hasChanged |= cleanup_associations();
     if (hasChanged)
     {
@@ -3629,30 +3627,11 @@ static BOOL init_xdg(void)
         return FALSE;
     }
 
-    if (getenv("XDG_CONFIG_HOME"))
-        xdg_config_dir = heap_printf("%s/menus/applications-merged", getenv("XDG_CONFIG_HOME"));
-    else
-        xdg_config_dir = heap_printf("%s/.config/menus/applications-merged", getenv("HOME"));
-    if (xdg_config_dir)
+    data_dir = strdupA(wine_get_config_dir());
+    if (data_dir)
     {
-        create_directories(xdg_config_dir);
-        if (getenv("XDG_DATA_HOME"))
-            xdg_data_dir = strdupA(getenv("XDG_DATA_HOME"));
-        else
-            xdg_data_dir = heap_printf("%s/.local/share", getenv("HOME"));
-        if (xdg_data_dir)
-        {
-            char *buffer;
-            create_directories(xdg_data_dir);
-            buffer = heap_printf("%s/desktop-directories", xdg_data_dir);
-            if (buffer)
-            {
-                mkdir(buffer, 0777);
-                HeapFree(GetProcessHeap(), 0, buffer);
-            }
-            return TRUE;
-        }
-        HeapFree(GetProcessHeap(), 0, xdg_config_dir);
+        create_directories(data_dir);
+        return TRUE;
     }
     WINE_ERR("out of memory\n");
     return FALSE;
