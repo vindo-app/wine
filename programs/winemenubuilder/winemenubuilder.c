@@ -199,8 +199,8 @@ struct rb_string_entry
 
 DEFINE_GUID(CLSID_WICIcnsEncoder, 0x312fb6f1,0xb767,0x409d,0x8a,0x6d,0x0f,0xc1,0x54,0xd4,0xf0,0x5c);
 
-static char *xdg_config_dir;
-static char *xdg_data_dir;
+static char *programs_dir;
+static char *filetypes_dir;
 static char *xdg_desktop_dir;
 
 
@@ -1150,7 +1150,7 @@ static inline int size_to_slot(int size)
 
 static HRESULT platform_write_icon(IStream *icoStream, ICONDIRENTRY *iconDirEntries,
                                    int numEntries, int exeIndex, LPCWSTR icoPathW,
-                                   const char *destFilename, char **nativeIdentifier)
+                                   const char *destFilename, const char *destDir, char **nativeIdentifier)
 {
     struct {
         int index;
@@ -1159,7 +1159,6 @@ static HRESULT platform_write_icon(IStream *icoStream, ICONDIRENTRY *iconDirEntr
     } best[ICNS_SLOTS];
     int indexes[ICNS_SLOTS];
     int i;
-    const char* tmpdir;
     char *icnsPath = NULL;
     LARGE_INTEGER zero;
     HRESULT hr;
@@ -1226,8 +1225,7 @@ static HRESULT platform_write_icon(IStream *icoStream, ICONDIRENTRY *iconDirEntr
         hr = E_OUTOFMEMORY;
         goto end;
     }
-    if (!(tmpdir = getenv("TMPDIR"))) tmpdir = "/tmp";
-    icnsPath = heap_printf("%s/%s.icns", tmpdir, *nativeIdentifier);
+    icnsPath = heap_printf("%s/%s.icns", destDir, *nativeIdentifier);
     if (icnsPath == NULL)
     {
         hr = E_OUTOFMEMORY;
@@ -1293,7 +1291,7 @@ static HRESULT platform_write_icon(IStream *icoStream, ICONDIRENTRY *iconDirEntr
         hr = E_OUTOFMEMORY;
         goto end;
     }
-    iconsDir = heap_printf("%s/icons/hicolor", xdg_data_dir);
+    iconsDir = heap_printf("%s/icons/hicolor", programs_dir);
     if (iconsDir == NULL)
     {
         hr = E_OUTOFMEMORY;
@@ -1369,7 +1367,7 @@ end:
 #endif /* defined(__APPLE__) */
 
 /* extract an icon from an exe or icon file; helper for IPersistFile_fnSave */
-static char *extract_icon(LPCWSTR icoPathW, int index, const char *destFilename, BOOL bWait)
+static char *extract_icon(LPCWSTR icoPathW, int index, const char *destFilename, const char *destDir, BOOL bWait)
 {
     IStream *stream = NULL;
     ICONDIRENTRY *pIconDirEntries = NULL;
@@ -1385,7 +1383,7 @@ static char *extract_icon(LPCWSTR icoPathW, int index, const char *destFilename,
         WINE_WARN("opening icon %s index %d failed, hr=0x%08X\n", wine_dbgstr_w(icoPathW), index, hr);
         goto end;
     }
-    hr = platform_write_icon(stream, pIconDirEntries, numEntries, index, icoPathW, destFilename, &nativeIdentifier);
+    hr = platform_write_icon(stream, pIconDirEntries, numEntries, index, icoPathW, destFilename, destDir, &nativeIdentifier);
     if (FAILED(hr))
         WINE_WARN("writing icon failed, error 0x%08X\n", hr);
 
@@ -1536,7 +1534,7 @@ static BOOL write_menu_file(const char *unix_link, const char *filename)
 
     while (1)
     {
-        tempfilename = heap_printf("%s/wine-menu-XXXXXX", xdg_config_dir);
+        tempfilename = heap_printf("%s/wine-menu-XXXXXX", programs_dir);
         if (tempfilename)
         {
             int tempfd = mkstemps(tempfilename, 0);
@@ -1582,7 +1580,7 @@ static BOOL write_menu_file(const char *unix_link, const char *filename)
             write_xml_text(tempfile, name);
             fprintf(tempfile, ".directory</Directory>\n");
             dir_file_name = heap_printf("%s/desktop-directories/%s%s.directory",
-                xdg_data_dir, count ? "" : "wine-", name);
+                programs_dir, count ? "" : "wine-", name);
             if (dir_file_name)
             {
                 if (stat(dir_file_name, &st) != 0 && errno == ENOENT)
@@ -1605,7 +1603,7 @@ static BOOL write_menu_file(const char *unix_link, const char *filename)
          fprintf(tempfile, "  </Menu>\n");
     fprintf(tempfile, "</Menu>\n");
 
-    menuPath = heap_printf("%s/%s", xdg_config_dir, name);
+    menuPath = heap_printf("%s/%s", programs_dir, name);
     if (menuPath == NULL) goto end;
     strcpy(menuPath + strlen(menuPath) - strlen(".desktop"), ".menu");
     ret = TRUE;
@@ -1644,7 +1642,7 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
     else
         ++linkname;
 
-    desktopPath = heap_printf("%s/applications/wine/%s.desktop", xdg_data_dir, link);
+    desktopPath = heap_printf("%s/applications/wine/%s.desktop", programs_dir, link);
     if (!desktopPath)
     {
         WINE_WARN("out of memory creating menu entry\n");
@@ -2021,7 +2019,7 @@ static BOOL add_mimes(const char *xdg_data_dir, struct list *mime_types)
 {
     char *globs_filename = NULL;
     BOOL ret = TRUE;
-    globs_filename = heap_printf("%s/mime/globs", xdg_data_dir);
+    globs_filename = heap_printf("%s/mime/globs", filetypes_dir);
     if (globs_filename)
     {
         FILE *globs_file = fopen(globs_filename, "r");
@@ -2629,7 +2627,7 @@ static BOOL generate_associations(const char *xdg_data_home, const char *package
                                 *comma = 0;
                                 index = atoiW(comma + 1);
                             }
-                            iconA = extract_icon(iconW, index, flattened_mime, FALSE);
+                            iconA = extract_icon(iconW, index, flattened_mime, filetypes_dir, FALSE);
                             HeapFree(GetProcessHeap(), 0, flattened_mime);
                         }
                     }
@@ -2651,7 +2649,7 @@ static BOOL generate_associations(const char *xdg_data_home, const char *package
 
             executableW = assoc_query(ASSOCSTR_EXECUTABLE, extensionW, openW);
             if (executableW)
-                openWithIconA = extract_icon(executableW, 0, NULL, FALSE);
+                openWithIconA = extract_icon(executableW, 0, NULL, filetypes_dir, FALSE);
 
             friendlyAppNameW = assoc_query(ASSOCSTR_FRIENDLYAPPNAME, extensionW, openW);
             if (friendlyAppNameW)
@@ -2843,9 +2841,9 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
 
     /* extract the icon */
     if( szIconPath[0] )
-        icon_name = extract_icon( szIconPath , iIconId, NULL, bWait );
+        icon_name = extract_icon( szIconPath , iIconId, NULL, programs_dir, bWait );
     else
-        icon_name = extract_icon( szPath, iIconId, NULL, bWait );
+        icon_name = extract_icon( szPath, iIconId, NULL, programs_dir, bWait );
 
     /* fail - try once again after parent process exit */
     if( !icon_name )
@@ -3084,7 +3082,7 @@ static BOOL InvokeShellLinkerForURL( IUniformResourceLocatorW *url, LPCWSTR link
                 if (pv[0].vt == VT_LPWSTR && pv[0].u.pwszVal && pv[0].u.pwszVal[0])
                 {
                     has_icon = TRUE;
-                    icon_name = extract_icon( pv[0].u.pwszVal, pv[1].u.iVal, NULL, bWait );
+                    icon_name = extract_icon( pv[0].u.pwszVal, pv[1].u.iVal, NULL, programs_dir, bWait );
 
                     WINE_TRACE("URL icon path: %s icon index: %d icon name: %s\n", wine_dbgstr_w(pv[0].u.pwszVal), pv[1].u.iVal, icon_name);
                 }
@@ -3330,7 +3328,7 @@ static void RefreshFileTypeAssociations(void)
         goto end;
     }
 
-    mime_dir = heap_printf("%s/mime", xdg_data_dir);
+    mime_dir = heap_printf("%s/mime", filetypes_dir);
     if (mime_dir == NULL)
     {
         WINE_ERR("out of memory\n");
@@ -3346,7 +3344,7 @@ static void RefreshFileTypeAssociations(void)
     }
     create_directories(packages_dir);
 
-    applications_dir = heap_printf("%s/applications", xdg_data_dir);
+    applications_dir = heap_printf("%s/applications", filetypes_dir);
     if (applications_dir == NULL)
     {
         WINE_ERR("out of memory\n");
@@ -3354,7 +3352,7 @@ static void RefreshFileTypeAssociations(void)
     }
     create_directories(applications_dir);
 
-    hasChanged = generate_associations(xdg_data_dir, packages_dir, applications_dir);
+    hasChanged = generate_associations(filetypes_dir, packages_dir, applications_dir);
     hasChanged |= cleanup_associations();
     if (hasChanged)
     {
@@ -3599,30 +3597,17 @@ static BOOL init_xdg(void)
         return FALSE;
     }
 
-    if (getenv("XDG_CONFIG_HOME"))
-        xdg_config_dir = heap_printf("%s/menus/applications-merged", getenv("XDG_CONFIG_HOME"));
-    else
-        xdg_config_dir = heap_printf("%s/.config/menus/applications-merged", getenv("HOME"));
-    if (xdg_config_dir)
+    programs_dir = heap_printf("%s/start/programs", wine_get_config_dir());
+    if (programs_dir)
     {
-        create_directories(xdg_config_dir);
-        if (getenv("XDG_DATA_HOME"))
-            xdg_data_dir = strdupA(getenv("XDG_DATA_HOME"));
-        else
-            xdg_data_dir = heap_printf("%s/.local/share", getenv("HOME"));
-        if (xdg_data_dir)
-        {
-            char *buffer;
-            create_directories(xdg_data_dir);
-            buffer = heap_printf("%s/desktop-directories", xdg_data_dir);
-            if (buffer)
-            {
-                mkdir(buffer, 0777);
-                HeapFree(GetProcessHeap(), 0, buffer);
-            }
-            return TRUE;
+        create_directories(programs_dir);
+        filetypes_dir = heap_printf("%s/start/filetypes", wine_get_config_dir());
+        if (filetypes_dir) {
+            create_directories(filetypes_dir);
+        } else {
+            HeapFree(GetProcessHeap(), 0, programs_dir);
         }
-        HeapFree(GetProcessHeap(), 0, xdg_config_dir);
+        return TRUE;
     }
     WINE_ERR("out of memory\n");
     return FALSE;
