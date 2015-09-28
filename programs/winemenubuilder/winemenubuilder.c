@@ -95,7 +95,6 @@
 #include "wine/debug.h"
 #include "wine/library.h"
 #include "wine/list.h"
-#include "wine/rbtree.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(menubuilder);
 
@@ -191,12 +190,6 @@ struct xdg_mime_type
     struct list entry;
 };
 
-struct rb_string_entry
-{
-    char *string;
-    struct wine_rb_entry entry;
-};
-
 DEFINE_GUID(CLSID_WICIcnsEncoder, 0x312fb6f1,0xb767,0x409d,0x8a,0x6d,0x0f,0xc1,0x54,0xd4,0xf0,0x5c);
 
 static char *programs_dir;
@@ -262,43 +255,6 @@ static char* heap_printf(const char *format, ...)
     if (!ret) ret = buffer;
     return ret;
 }
-
-static int winemenubuilder_rb_string_compare(const void *key, const struct wine_rb_entry *entry)
-{
-    const struct rb_string_entry *t = WINE_RB_ENTRY_VALUE(entry, const struct rb_string_entry, entry);
-
-    return strcmp((char*)key, t->string);
-}
-
-static void *winemenubuilder_rb_alloc(size_t size)
-{
-    return HeapAlloc(GetProcessHeap(), 0, size);
-}
-
-static void *winemenubuilder_rb_realloc(void *ptr, size_t size)
-{
-    return HeapReAlloc(GetProcessHeap(), 0, ptr, size);
-}
-
-static void winemenubuilder_rb_free(void *ptr)
-{
-    HeapFree(GetProcessHeap(), 0, ptr);
-}
-
-static void winemenubuilder_rb_destroy(struct wine_rb_entry *entry, void *context)
-{
-    struct rb_string_entry *t = WINE_RB_ENTRY_VALUE(entry, struct rb_string_entry, entry);
-    HeapFree(GetProcessHeap(), 0, t->string);
-    HeapFree(GetProcessHeap(), 0, t);
-}
-
-static const struct wine_rb_functions winemenubuilder_rb_functions =
-{
-    winemenubuilder_rb_alloc,
-    winemenubuilder_rb_realloc,
-    winemenubuilder_rb_free,
-    winemenubuilder_rb_string_compare,
-};
 
 static void write_xml_text(FILE *file, const char *text)
 {
@@ -1395,137 +1351,6 @@ static BOOL write_desktop_entry(const char *unix_link, const char *location, con
     return TRUE;
 }
 
-static BOOL write_directory_entry(const char *directory, const char *location)
-{
-    FILE *file;
-
-    WINE_TRACE("(%s,%s)\n", wine_dbgstr_a(directory), wine_dbgstr_a(location));
-
-    file = fopen(location, "w");
-    if (file == NULL)
-        return FALSE;
-
-    fprintf(file, "[Desktop Entry]\n");
-    fprintf(file, "Type=Directory\n");
-    if (strcmp(directory, "wine") == 0)
-    {
-        fprintf(file, "Name=Wine\n");
-        fprintf(file, "Icon=wine\n");
-    }
-    else
-    {
-        fprintf(file, "Name=%s\n", directory);
-        fprintf(file, "Icon=folder\n");
-    }
-
-    fclose(file);
-    return TRUE;
-}
-
-static BOOL write_menu_file(const char *unix_link, const char *filename)
-{
-    char *tempfilename;
-    FILE *tempfile = NULL;
-    char *lastEntry;
-    char *name = NULL;
-    char *menuPath = NULL;
-    int i;
-    int count = 0;
-    BOOL ret = FALSE;
-
-    WINE_TRACE("(%s)\n", wine_dbgstr_a(filename));
-
-    while (1)
-    {
-        tempfilename = heap_printf("%s/wine-menu-XXXXXX", programs_dir);
-        if (tempfilename)
-        {
-            int tempfd = mkstemps(tempfilename, 0);
-            if (tempfd >= 0)
-            {
-                tempfile = fdopen(tempfd, "w");
-                if (tempfile)
-                    break;
-                close(tempfd);
-                goto end;
-            }
-            else if (errno == EEXIST)
-            {
-                HeapFree(GetProcessHeap(), 0, tempfilename);
-                continue;
-            }
-            HeapFree(GetProcessHeap(), 0, tempfilename);
-        }
-        return FALSE;
-    }
-
-    fprintf(tempfile, "<!DOCTYPE Menu PUBLIC \"-//freedesktop//DTD Menu 1.0//EN\"\n");
-    fprintf(tempfile, "\"http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd\">\n");
-    fprintf(tempfile, "<Menu>\n");
-    fprintf(tempfile, "  <Name>Applications</Name>\n");
-
-    name = HeapAlloc(GetProcessHeap(), 0, lstrlenA(filename) + 1);
-    if (name == NULL) goto end;
-    lastEntry = name;
-    for (i = 0; filename[i]; i++)
-    {
-        name[i] = filename[i];
-        if (filename[i] == '/')
-        {
-            char *dir_file_name;
-            struct stat st;
-            name[i] = 0;
-            fprintf(tempfile, "  <Menu>\n");
-            fprintf(tempfile, "    <Name>%s", count ? "" : "wine-");
-            write_xml_text(tempfile, name);
-            fprintf(tempfile, "</Name>\n");
-            fprintf(tempfile, "    <Directory>%s", count ? "" : "wine-");
-            write_xml_text(tempfile, name);
-            fprintf(tempfile, ".directory</Directory>\n");
-            dir_file_name = heap_printf("%s/desktop-directories/%s%s.directory",
-                programs_dir, count ? "" : "wine-", name);
-            if (dir_file_name)
-            {
-                if (stat(dir_file_name, &st) != 0 && errno == ENOENT)
-                    write_directory_entry(lastEntry, dir_file_name);
-                HeapFree(GetProcessHeap(), 0, dir_file_name);
-            }
-            name[i] = '-';
-            lastEntry = &name[i+1];
-            ++count;
-        }
-    }
-    name[i] = 0;
-
-    fprintf(tempfile, "    <Include>\n");
-    fprintf(tempfile, "      <Filename>");
-    write_xml_text(tempfile, name);
-    fprintf(tempfile, "</Filename>\n");
-    fprintf(tempfile, "    </Include>\n");
-    for (i = 0; i < count; i++)
-         fprintf(tempfile, "  </Menu>\n");
-    fprintf(tempfile, "</Menu>\n");
-
-    menuPath = heap_printf("%s/%s", programs_dir, name);
-    if (menuPath == NULL) goto end;
-    strcpy(menuPath + strlen(menuPath) - strlen(".desktop"), ".menu");
-    ret = TRUE;
-
-end:
-    if (tempfile)
-        fclose(tempfile);
-    if (ret)
-        ret = (rename(tempfilename, menuPath) == 0);
-    if (!ret && tempfilename)
-        remove(tempfilename);
-    HeapFree(GetProcessHeap(), 0, tempfilename);
-    if (ret)
-        register_menus_entry(menuPath, unix_link);
-    HeapFree(GetProcessHeap(), 0, name);
-    HeapFree(GetProcessHeap(), 0, menuPath);
-    return ret;
-}
-
 static BOOL write_menu_entry(const char *unix_link, const char *link, const char *path, const char *args,
                              const char *descr, const char *workdir, const char *icon)
 {
@@ -1545,7 +1370,7 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
     else
         ++linkname;
 
-    desktopPath = heap_printf("%s/applications/wine/%s.desktop", programs_dir, link);
+    desktopPath = heap_printf("%s/%s.desktop", programs_dir, link);
     if (!desktopPath)
     {
         WINE_WARN("out of memory creating menu entry\n");
@@ -1566,13 +1391,6 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
         WINE_WARN("couldn't make desktop entry %s\n", wine_dbgstr_a(desktopPath));
         ret = FALSE;
         goto end;
-    }
-
-    filename = heap_printf("wine/%s.desktop", link);
-    if (!filename || !write_menu_file(unix_link, filename))
-    {
-        WINE_WARN("couldn't make menu file %s\n", wine_dbgstr_a(filename));
-        ret = FALSE;
     }
 
 end:
@@ -1854,192 +1672,6 @@ static HRESULT get_cmdline( IShellLinkW *sl, LPWSTR szPath, DWORD pathSize,
 
     IShellLinkDataList_Release( dl );
     return hr;
-}
-
-static BOOL next_line(FILE *file, char **line, int *size)
-{
-    int pos = 0;
-    char *cr;
-    if (*line == NULL)
-    {
-        *size = 4096;
-        *line = HeapAlloc(GetProcessHeap(), 0, *size);
-    }
-    while (*line != NULL)
-    {
-        if (fgets(&(*line)[pos], *size - pos, file) == NULL)
-        {
-            HeapFree(GetProcessHeap(), 0, *line);
-            *line = NULL;
-            if (feof(file))
-                return TRUE;
-            return FALSE;
-        }
-        pos = strlen(*line);
-        cr = strchr(*line, '\n');
-        if (cr == NULL)
-        {
-            char *line2;
-            (*size) *= 2;
-            line2 = HeapReAlloc(GetProcessHeap(), 0, *line, *size);
-            if (line2)
-                *line = line2;
-            else
-            {
-                HeapFree(GetProcessHeap(), 0, *line);
-                *line = NULL;
-            }
-        }
-        else
-        {
-            *cr = 0;
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
-
-static BOOL add_mimes(const char *xdg_data_dir, struct list *mime_types)
-{
-    char *globs_filename = NULL;
-    BOOL ret = TRUE;
-    globs_filename = heap_printf("%s/mime/globs", filetypes_dir);
-    if (globs_filename)
-    {
-        FILE *globs_file = fopen(globs_filename, "r");
-        if (globs_file) /* doesn't have to exist */
-        {
-            char *line = NULL;
-            int size = 0;
-            while (ret && (ret = next_line(globs_file, &line, &size)) && line)
-            {
-                char *pos;
-                struct xdg_mime_type *mime_type_entry = NULL;
-                if (line[0] != '#' && (pos = strchr(line, ':')))
-                {
-                    mime_type_entry = HeapAlloc(GetProcessHeap(), 0, sizeof(struct xdg_mime_type));
-                    if (mime_type_entry)
-                    {
-                        *pos = 0;
-                        mime_type_entry->mimeType = strdupA(line);
-                        mime_type_entry->glob = strdupA(pos + 1);
-                        mime_type_entry->lower_glob = strdupA(pos + 1);
-                        if (mime_type_entry->lower_glob)
-                        {
-                            char *l;
-                            for (l = mime_type_entry->lower_glob; *l; l++)
-                                *l = tolower(*l);
-                        }
-                        if (mime_type_entry->mimeType && mime_type_entry->glob && mime_type_entry->lower_glob)
-                            list_add_tail(mime_types, &mime_type_entry->entry);
-                        else
-                        {
-                            HeapFree(GetProcessHeap(), 0, mime_type_entry->mimeType);
-                            HeapFree(GetProcessHeap(), 0, mime_type_entry->glob);
-                            HeapFree(GetProcessHeap(), 0, mime_type_entry->lower_glob);
-                            HeapFree(GetProcessHeap(), 0, mime_type_entry);
-                            ret = FALSE;
-                        }
-                    }
-                    else
-                        ret = FALSE;
-                }
-            }
-            HeapFree(GetProcessHeap(), 0, line);
-            fclose(globs_file);
-        }
-        HeapFree(GetProcessHeap(), 0, globs_filename);
-    }
-    else
-        ret = FALSE;
-    return ret;
-}
-
-static void free_native_mime_types(struct list *native_mime_types)
-{
-    struct xdg_mime_type *mime_type_entry, *mime_type_entry2;
-
-    LIST_FOR_EACH_ENTRY_SAFE(mime_type_entry, mime_type_entry2, native_mime_types, struct xdg_mime_type, entry)
-    {
-        list_remove(&mime_type_entry->entry);
-        HeapFree(GetProcessHeap(), 0, mime_type_entry->glob);
-        HeapFree(GetProcessHeap(), 0, mime_type_entry->lower_glob);
-        HeapFree(GetProcessHeap(), 0, mime_type_entry->mimeType);
-        HeapFree(GetProcessHeap(), 0, mime_type_entry);
-    }
-}
-
-static BOOL build_native_mime_types(const char *xdg_data_home, struct list *mime_types)
-{
-    char *xdg_data_dirs;
-    BOOL ret;
-
-    xdg_data_dirs = getenv("XDG_DATA_DIRS");
-    if (xdg_data_dirs == NULL)
-        xdg_data_dirs = heap_printf("/usr/local/share/:/usr/share/");
-    else
-        xdg_data_dirs = strdupA(xdg_data_dirs);
-
-    if (xdg_data_dirs)
-    {
-        const char *begin;
-        char *end;
-
-        ret = add_mimes(xdg_data_home, mime_types);
-        if (ret)
-        {
-            for (begin = xdg_data_dirs; (end = strchr(begin, ':')); begin = end + 1)
-            {
-                *end = '\0';
-                ret = add_mimes(begin, mime_types);
-                *end = ':';
-                if (!ret)
-                    break;
-            }
-            if (ret)
-                ret = add_mimes(begin, mime_types);
-        }
-        HeapFree(GetProcessHeap(), 0, xdg_data_dirs);
-    }
-    else
-        ret = FALSE;
-    if (!ret)
-        free_native_mime_types(mime_types);
-    return ret;
-}
-
-static BOOL match_glob(struct list *native_mime_types, const char *extension,
-                       int ignoreGlobCase, char **match)
-{
-#ifdef HAVE_FNMATCH
-    struct xdg_mime_type *mime_type_entry;
-    int matchLength = 0;
-
-    *match = NULL;
-
-    LIST_FOR_EACH_ENTRY(mime_type_entry, native_mime_types, struct xdg_mime_type, entry)
-    {
-        const char *glob = ignoreGlobCase ? mime_type_entry->lower_glob : mime_type_entry->glob;
-        if (fnmatch(glob, extension, 0) == 0)
-        {
-            if (*match == NULL || matchLength < strlen(glob))
-            {
-                *match = mime_type_entry->mimeType;
-                matchLength = strlen(glob);
-            }
-        }
-    }
-
-    if (*match != NULL)
-    {
-        *match = strdupA(*match);
-        if (*match == NULL)
-            return FALSE;
-    }
-#else
-    *match = NULL;
-#endif
-    return TRUE;
 }
 
 static WCHAR* reg_get_valW(HKEY key, LPCWSTR subkey, LPCWSTR name)
@@ -2411,13 +2043,16 @@ static BOOL generate_associations()
             if (iconW)
             {
                 int index = 0;
+                char *iconPath;
                 WCHAR *comma = strrchrW(iconW, ',');
                 if (comma)
                 {
                     *comma = 0;
                     index = atoiW(comma + 1);
                 }
-                extract_icon(iconW, index, nativeIdentifierA, filetypes_dir, FALSE);
+                iconPath = heap_printf("%s%s", nativeIdentifierA, extensionA); 
+                extract_icon(iconW, index, iconPath, filetypes_dir, FALSE);
+                HeapFree(GetProcessHeap(), 0, iconPath);
             }
 
             friendlyAppNameW = assoc_query(ASSOCSTR_FRIENDLYAPPNAME, extensionW, openW);
@@ -2589,9 +2224,9 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
 
     /* extract the icon */
     if( szIconPath[0] )
-        iconWorked = extract_icon( szIconPath , iIconId, NULL, programs_dir, bWait );
+        iconWorked = extract_icon( szIconPath , iIconId, native_identifier, programs_dir, bWait );
     else
-        iconWorked = extract_icon( szPath, iIconId, NULL, programs_dir, bWait );
+        iconWorked = extract_icon( szPath, iIconId, native_identifier, programs_dir, bWait );
 
     /* fail - try once again after parent process exit */
     if( !iconWorked )
