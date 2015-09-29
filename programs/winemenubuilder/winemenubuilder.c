@@ -217,15 +217,6 @@ static unsigned short crc16(const char* string)
     return crc;
 }
 
-static char *strdupA( const char *str )
-{
-    char *ret;
-
-    if (!str) return NULL;
-    if ((ret = HeapAlloc( GetProcessHeap(), 0, strlen(str) + 1 ))) strcpy( ret, str );
-    return ret;
-}
-
 static char* heap_printf(const char *format, ...)
 {
     va_list args;
@@ -1352,7 +1343,7 @@ static BOOL write_desktop_entry(const char *unix_link, const char *location, con
 }
 
 static BOOL write_menu_entry(const char *unix_link, const char *link, const char *path, const char *args,
-                             const char *descr, const char *workdir, const char *icon)
+                             const char *descr, const char *workdir, const char *nativeIdentifier)
 {
     const char *linkname;
     char *desktopPath = NULL;
@@ -1362,7 +1353,7 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
 
     WINE_TRACE("(%s, %s, %s, %s, %s, %s, %s)\n", wine_dbgstr_a(unix_link), wine_dbgstr_a(link),
                wine_dbgstr_a(path), wine_dbgstr_a(args), wine_dbgstr_a(descr),
-               wine_dbgstr_a(workdir), wine_dbgstr_a(icon));
+               wine_dbgstr_a(workdir), wine_dbgstr_a(nativeIdentifier));
 
     linkname = strrchr(link, '/');
     if (linkname == NULL)
@@ -1370,7 +1361,7 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
     else
         ++linkname;
 
-    desktopPath = heap_printf("%s/%s.desktop", programs_dir, link);
+    desktopPath = heap_printf("%s/%s.desktop", programs_dir, nativeIdentifier);
     if (!desktopPath)
     {
         WINE_WARN("out of memory creating menu entry\n");
@@ -1386,7 +1377,7 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
         goto end;
     }
     *desktopDir = '/';
-    if (!write_desktop_entry(unix_link, desktopPath, linkname, path, args, descr, workdir, icon))
+    if (!write_desktop_entry(unix_link, desktopPath, linkname, path, args, descr, workdir, nativeIdentifier))
     {
         WINE_WARN("couldn't make desktop entry %s\n", wine_dbgstr_a(desktopPath));
         ret = FALSE;
