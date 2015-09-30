@@ -1704,12 +1704,11 @@ static HKEY open_associations_reg_key(void)
 }
 
 static BOOL has_association_changed(LPCWSTR extensionW, LPCSTR mimeType, LPCWSTR progId,
-    LPCSTR appName, LPCSTR openWithIcon)
+    LPCSTR appName)
 {
     static const WCHAR ProgIDW[] = {'P','r','o','g','I','D',0};
     static const WCHAR MimeTypeW[] = {'M','i','m','e','T','y','p','e',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
-    static const WCHAR OpenWithIconW[] = {'O','p','e','n','W','i','t','h','I','c','o','n',0};
     HKEY assocKey;
     BOOL ret;
 
@@ -1735,13 +1734,6 @@ static BOOL has_association_changed(LPCWSTR extensionW, LPCSTR mimeType, LPCWSTR
             ret = TRUE;
         HeapFree(GetProcessHeap(), 0, valueA);
 
-        valueA = reg_get_val_utf8(assocKey, extensionW, OpenWithIconW);
-        if ((openWithIcon && !valueA) ||
-            (!openWithIcon && valueA) ||
-            (openWithIcon && valueA && lstrcmpA(valueA, openWithIcon)))
-            ret = TRUE;
-        HeapFree(GetProcessHeap(), 0, valueA);
-
         RegCloseKey(assocKey);
     }
     else
@@ -1753,19 +1745,17 @@ static BOOL has_association_changed(LPCWSTR extensionW, LPCSTR mimeType, LPCWSTR
 }
 
 static void update_association(LPCWSTR extension, LPCSTR mimeType, LPCWSTR progId,
-    LPCSTR appName, LPCSTR desktopFile, LPCSTR openWithIcon)
+    LPCSTR appName, LPCSTR desktopFile)
 {
     static const WCHAR ProgIDW[] = {'P','r','o','g','I','D',0};
     static const WCHAR MimeTypeW[] = {'M','i','m','e','T','y','p','e',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
     static const WCHAR DesktopFileW[] = {'D','e','s','k','t','o','p','F','i','l','e',0};
-    static const WCHAR OpenWithIconW[] = {'O','p','e','n','W','i','t','h','I','c','o','n',0};
     HKEY assocKey = NULL;
     HKEY subkey = NULL;
     WCHAR *mimeTypeW = NULL;
     WCHAR *appNameW = NULL;
     WCHAR *desktopFileW = NULL;
-    WCHAR *openWithIconW = NULL;
 
     assocKey = open_associations_reg_key();
     if (assocKey == NULL)
@@ -1794,31 +1784,10 @@ static void update_association(LPCWSTR extension, LPCSTR mimeType, LPCWSTR progI
         goto done;
     }
 
-    desktopFileW = utf8_chars_to_wchars(desktopFile);
-    if (desktopFileW == NULL)
-    {
-        WINE_ERR("out of memory\n");
-        goto done;
-    }
-
-    if (openWithIcon)
-    {
-        openWithIconW = utf8_chars_to_wchars(openWithIcon);
-        if (openWithIconW == NULL)
-        {
-            WINE_ERR("out of memory\n");
-            goto done;
-        }
-    }
-
     RegSetValueExW(subkey, MimeTypeW, 0, REG_SZ, (const BYTE*) mimeTypeW, (lstrlenW(mimeTypeW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, ProgIDW, 0, REG_SZ, (const BYTE*) progId, (lstrlenW(progId) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, AppNameW, 0, REG_SZ, (const BYTE*) appNameW, (lstrlenW(appNameW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, DesktopFileW, 0, REG_SZ, (const BYTE*) desktopFileW, (lstrlenW(desktopFileW) + 1) * sizeof(WCHAR));
-    if (openWithIcon)
-        RegSetValueExW(subkey, OpenWithIconW, 0, REG_SZ, (const BYTE*) openWithIconW, (lstrlenW(openWithIconW) + 1) * sizeof(WCHAR));
-    else
-        RegDeleteValueW(subkey, OpenWithIconW);
 
 done:
     RegCloseKey(assocKey);
@@ -1826,7 +1795,6 @@ done:
     HeapFree(GetProcessHeap(), 0, mimeTypeW);
     HeapFree(GetProcessHeap(), 0, appNameW);
     HeapFree(GetProcessHeap(), 0, desktopFileW);
-    HeapFree(GetProcessHeap(), 0, openWithIconW);
 }
 
 static BOOL cleanup_associations(void)
@@ -1910,27 +1878,35 @@ static BOOL is_extension_blacklisted(LPCWSTR extension)
 
 static BOOL write_freedesktop_association_entry(const char *desktopPath, const char *dot_extension,
                                                 const char *friendlyAppName, const char *mimeType,
-                                                const char *progId, const char *openWithIcon)
+                                                const char *progId)
 {
     BOOL ret = FALSE;
     FILE *desktop;
 
-    WINE_TRACE("writing association for file type %s, friendlyAppName=%s, MIME type %s, progID=%s, icon=%s to file %s\n",
+    WINE_TRACE("writing association for file type %s, friendlyAppName=%s, MIME type %s, icon=%s to file %s\n",
                wine_dbgstr_a(dot_extension), wine_dbgstr_a(friendlyAppName), wine_dbgstr_a(mimeType),
-               wine_dbgstr_a(progId), wine_dbgstr_a(openWithIcon), wine_dbgstr_a(desktopPath));
+               wine_dbgstr_a(progId), wine_dbgstr_a(desktopPath));
 
     desktop = fopen(desktopPath, "w");
     if (desktop)
     {
-        fprintf(desktop, "[Desktop Entry]\n");
-        fprintf(desktop, "Type=Application\n");
-        fprintf(desktop, "Name=%s\n", friendlyAppName);
-        fprintf(desktop, "Exec=env WINEPREFIX=\"%s\" %s start /ProgIDOpen %s %%f\n",
-                wine_get_config_dir(), wine_path, progId);
-        fprintf(desktop, "NoDisplay=true\n");
-        fprintf(desktop, "StartupNotify=true\n");
-        if (openWithIcon)
-            fprintf(desktop, "Icon=%s\n", openWithIcon);
+        fprintf(desktop, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+	fprintf(desktop, "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
+        fprintf(desktop, "<plist version=\"1.0\"\n");
+        fprintf(desktop, "<dict>\n");
+
+        fprintf(desktop, "    <key>Name</key>\n");
+        fprintf(desktop, "    <string>");
+        write_xml_text(desktop, friendlyAppName);
+        fprintf(desktop, "</string>\n");
+
+        fprintf(desktop, "    <key>ProgID</key>\n");
+        fprintf(desktop, "    <string>");
+        write_xml_text(desktop, progId);
+        fprintf(desktop, "</string>\n");
+
+        fprintf(desktop, "</dict>\n");
+        fprintf(desktop, "</plist>\n");
         ret = TRUE;
         fclose(desktop);
     }
@@ -1983,7 +1959,6 @@ static BOOL generate_associations()
             char *extensionA = NULL;
             WCHAR *commandW = NULL;
             WCHAR *executableW = NULL;
-            char *openWithIconA = NULL;
             WCHAR *friendlyDocNameW = NULL;
             char *friendlyDocNameA = NULL;
             WCHAR *iconW = NULL;
@@ -2079,15 +2054,15 @@ static BOOL generate_associations()
             else
                 goto end; /* no progID => not a file type association */
 
-            if (has_association_changed(extensionW, mimeTypeA, progIdW, friendlyAppNameA, openWithIconA))
+            if (has_association_changed(extensionW, mimeTypeA, progIdW, friendlyAppNameA))
             {
-                char *desktopPath = heap_printf("%s/%s.%s.desktop", filetypes_dir, nativeIdentifierA, &extensionA[1]);
+                char *desktopPath = heap_printf("%s/%s.%s.plist", filetypes_dir, nativeIdentifierA, &extensionA[1]);
                 if (desktopPath)
                 {
-                    if (write_freedesktop_association_entry(desktopPath, extensionA, friendlyAppNameA, mimeTypeA, progIdA, openWithIconA))
+                    if (write_freedesktop_association_entry(desktopPath, extensionA, friendlyAppNameA, mimeTypeA, progIdA))
                     {
                         hasChanged = TRUE;
-                        update_association(extensionW, mimeTypeA, progIdW, friendlyAppNameA, desktopPath, openWithIconA);
+                        update_association(extensionW, mimeTypeA, progIdW, friendlyAppNameA, desktopPath);
                     }
                     HeapFree(GetProcessHeap(), 0, desktopPath);
                 }
@@ -2097,7 +2072,6 @@ static BOOL generate_associations()
             HeapFree(GetProcessHeap(), 0, extensionA);
             HeapFree(GetProcessHeap(), 0, commandW);
             HeapFree(GetProcessHeap(), 0, executableW);
-            HeapFree(GetProcessHeap(), 0, openWithIconA);
             HeapFree(GetProcessHeap(), 0, friendlyDocNameW);
             HeapFree(GetProcessHeap(), 0, friendlyDocNameA);
             HeapFree(GetProcessHeap(), 0, iconW);
