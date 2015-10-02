@@ -103,14 +103,6 @@ WINE_DEFAULT_DEBUG_CHANNEL(menubuilder);
 #define in_startmenu(csidl)   ((csidl)==CSIDL_STARTMENU || \
                                (csidl)==CSIDL_COMMON_STARTMENU)
 
-/* On linux we create all menu item entries with an absolute path to wine,
- * in order to allow using multiple wine versions at the same time. */
-#ifdef __linux__
-    static const char wine_path[] = BINDIR "/wine";
-#else
-    static const char wine_path[] = "wine";
-#endif
-
 /* link file formats */
 
 #include "pshpack1.h"
@@ -1317,19 +1309,42 @@ static BOOL write_desktop_entry(const char *unix_link, const char *location, con
     if (file == NULL)
         return FALSE;
 
-    fprintf(file, "[Desktop Entry]\n");
-    fprintf(file, "Name=%s\n", linkname);
-    fprintf(file, "Exec=env WINEPREFIX=\"%s\" %s %s %s\n",
-            wine_get_config_dir(), wine_path, path, args);
-    fprintf(file, "Type=Application\n");
-    fprintf(file, "StartupNotify=true\n");
-    if (descr && lstrlenA(descr))
-        fprintf(file, "Comment=%s\n", descr);
-    if (workdir && lstrlenA(workdir))
-        fprintf(file, "Path=%s\n", workdir);
-    if (icon && lstrlenA(icon))
-        fprintf(file, "Icon=%s\n", icon);
+    fprintf(file, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    fprintf(file, "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
+    fprintf(file, "<plist version=\"1.0\"\n");
+    fprintf(file, "<dict>\n");
 
+    fprintf(file, "    <key>Name</key>\n");
+    fprintf(file, "    <string>");
+    write_xml_text(file, linkname);
+    fprintf(file, "</string>\n");
+
+    fprintf(file, "    <key>Path</key>\n");
+    fprintf(file, "    <string>");
+    write_xml_text(file, path);
+    fprintf(file, "</string>\n");
+
+    fprintf(file, "    <key>Arguments</key>\n");
+    fprintf(file, "    <string>");
+    write_xml_text(file, args);
+    fprintf(file, "</string>\n");
+
+    if (descr && lstrlenA(descr)) {
+        fprintf(file, "    <key>Description</key>\n");
+        fprintf(file, "    <string>");
+        write_xml_text(file, descr);
+        fprintf(file, "</string>\n");
+    }
+
+    if (workdir && lstrlenA(workdir)) {
+        fprintf(file, "    <key>WorkingDirectory</key>\n");
+        fprintf(file, "    <string>");
+        write_xml_text(file, workdir);
+        fprintf(file, "</string>\n");
+    }
+
+    fprintf(file, "</dict>\n");
+    fprintf(file, "</plist>\n");
     fclose(file);
 
     if (unix_link)
@@ -1361,7 +1376,7 @@ static BOOL write_menu_entry(const char *unix_link, const char *link, const char
     else
         ++linkname;
 
-    desktopPath = heap_printf("%s/%s.desktop", programs_dir, nativeIdentifier);
+    desktopPath = heap_printf("%s/%s.plist", programs_dir, nativeIdentifier);
     if (!desktopPath)
     {
         WINE_WARN("out of memory creating menu entry\n");
@@ -1388,65 +1403,6 @@ end:
     HeapFree(GetProcessHeap(), 0, desktopPath);
     HeapFree(GetProcessHeap(), 0, filename);
     return ret;
-}
-
-/* This escapes reserved characters in .desktop files' Exec keys. */
-static LPSTR escape(LPCWSTR arg)
-{
-    int i, j;
-    WCHAR *escaped_string;
-    char *utf8_string;
-
-    escaped_string = HeapAlloc(GetProcessHeap(), 0, (4 * strlenW(arg) + 1) * sizeof(WCHAR));
-    if (escaped_string == NULL) return NULL;
-    for (i = j = 0; arg[i]; i++)
-    {
-        switch (arg[i])
-        {
-        case '\\':
-            escaped_string[j++] = '\\';
-            escaped_string[j++] = '\\';
-            escaped_string[j++] = '\\';
-            escaped_string[j++] = '\\';
-            break;
-        case ' ':
-        case '\t':
-        case '\n':
-        case '"':
-        case '\'':
-        case '>':
-        case '<':
-        case '~':
-        case '|':
-        case '&':
-        case ';':
-        case '$':
-        case '*':
-        case '?':
-        case '#':
-        case '(':
-        case ')':
-        case '`':
-            escaped_string[j++] = '\\';
-            escaped_string[j++] = '\\';
-            /* fall through */
-        default:
-            escaped_string[j++] = arg[i];
-            break;
-        }
-    }
-    escaped_string[j] = 0;
-
-    utf8_string = wchars_to_utf8_chars(escaped_string);
-    if (utf8_string == NULL)
-    {
-        WINE_ERR("out of memory\n");
-        goto end;
-    }
-
-end:
-    HeapFree(GetProcessHeap(), 0, escaped_string);
-    return utf8_string;
 }
 
 /* Return a heap-allocated copy of the unix format difference between the two
@@ -1891,7 +1847,7 @@ static BOOL write_freedesktop_association_entry(const char *desktopPath, const c
     if (desktop)
     {
         fprintf(desktop, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
-	fprintf(desktop, "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
+        fprintf(desktop, "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
         fprintf(desktop, "<plist version=\"1.0\"\n");
         fprintf(desktop, "<dict>\n");
 
@@ -2044,7 +2000,7 @@ static BOOL generate_associations()
             progIdW = reg_get_valW(HKEY_CLASSES_ROOT, extensionW, NULL);
             if (progIdW)
             {
-                progIdA = escape(progIdW);
+                progIdA = wchars_to_utf8_chars(progIdW);
                 if (progIdA == NULL)
                 {
                     WINE_ERR("out of memory\n");
@@ -2098,7 +2054,7 @@ static char *get_start_exe_path(void)
     WCHAR start_path[MAX_PATH];
     GetWindowsDirectoryW(start_path, MAX_PATH);
     lstrcatW(start_path, startW);
-    return escape(start_path);
+    return start_path;
 }
 
 static char* escape_unix_link_arg(LPCSTR unix_link)
@@ -2107,7 +2063,7 @@ static char* escape_unix_link_arg(LPCSTR unix_link)
     WCHAR *unix_linkW = utf8_chars_to_wchars(unix_link);
     if (unix_linkW)
     {
-        char *escaped_lnk = escape(unix_linkW);
+        char *escaped_lnk = wchars_to_utf8_chars(unix_linkW);
         if (escaped_lnk)
         {
             ret = heap_printf("/Unix %s", escaped_lnk);
@@ -2255,8 +2211,8 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
     }
 
     /* escape the path and parameters */
-    escaped_path = escape(szPath);
-    escaped_args = escape(szArgs);
+    escaped_path = wchars_to_utf8_chars(szPath);
+    escaped_args = wchars_to_utf8_chars(szArgs);
     description = wchars_to_utf8_chars(szDescription);
     if (escaped_path == NULL || escaped_args == NULL || description == NULL)
     {
@@ -2391,7 +2347,7 @@ static BOOL InvokeShellLinkerForURL( IUniformResourceLocatorW *url, LPCWSTR link
         goto cleanup;
     }
 
-    escaped_urlPath = escape(urlPath);
+    escaped_urlPath = wchars_to_utf8_chars(urlPath);
     if (escaped_urlPath == NULL)
     {
         WINE_ERR("couldn't escape url, out of memory\n");
