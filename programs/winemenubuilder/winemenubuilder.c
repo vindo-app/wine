@@ -2054,24 +2054,12 @@ static char *get_start_exe_path(void)
     WCHAR start_path[MAX_PATH];
     GetWindowsDirectoryW(start_path, MAX_PATH);
     lstrcatW(start_path, startW);
-    return start_path;
+    return wchars_to_utf8_chars(start_path);
 }
 
 static char* escape_unix_link_arg(LPCSTR unix_link)
 {
-    char *ret = NULL;
-    WCHAR *unix_linkW = utf8_chars_to_wchars(unix_link);
-    if (unix_linkW)
-    {
-        char *escaped_lnk = wchars_to_utf8_chars(unix_linkW);
-        if (escaped_lnk)
-        {
-            ret = heap_printf("/Unix %s", escaped_lnk);
-            HeapFree(GetProcessHeap(), 0, escaped_lnk);
-        }
-        HeapFree(GetProcessHeap(), 0, unix_linkW);
-    }
-    return ret;
+    return heap_printf("/Unix %s", unix_link);
 }
 
 static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
@@ -2079,7 +2067,7 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
     static const WCHAR startW[] = {'\\','c','o','m','m','a','n','d',
                                    '\\','s','t','a','r','t','.','e','x','e',0};
     char *link_name = NULL, *work_dir = NULL;
-    char *escaped_path = NULL, *escaped_args = NULL, *description = NULL;
+    char *path = NULL, *args = NULL, *description = NULL;
     WCHAR szTmp[INFOTIPSIZE];
     WCHAR szDescription[INFOTIPSIZE], szPath[MAX_PATH], szWorkDir[MAX_PATH];
     WCHAR szArgs[INFOTIPSIZE], szIconPath[MAX_PATH];
@@ -2210,11 +2198,10 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
         lstrcatW(szPath, startW);
     }
 
-    /* escape the path and parameters */
-    escaped_path = wchars_to_utf8_chars(szPath);
-    escaped_args = wchars_to_utf8_chars(szArgs);
+    path = wchars_to_utf8_chars(szPath);
+    args = wchars_to_utf8_chars(szArgs);
     description = wchars_to_utf8_chars(szDescription);
-    if (escaped_path == NULL || escaped_args == NULL || description == NULL)
+    if (path == NULL || args == NULL || description == NULL)
     {
         WINE_ERR("out of memory allocating/escaping parameters\n");
         goto cleanup;
@@ -2258,7 +2245,7 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
                 }
             }
             else
-                r = !write_desktop_entry(NULL, location, lastEntry, escaped_path, escaped_args, description, work_dir, native_identifier);
+                r = !write_desktop_entry(NULL, location, lastEntry, path, args, description, work_dir, native_identifier);
             if (r == 0)
                 chmod(location, 0755);
             HeapFree(GetProcessHeap(), 0, location);
@@ -2280,8 +2267,8 @@ cleanup:
     if (hsem) CloseHandle( hsem );
     HeapFree( GetProcessHeap(), 0, work_dir );
     HeapFree( GetProcessHeap(), 0, link_name );
-    HeapFree( GetProcessHeap(), 0, escaped_args );
-    HeapFree( GetProcessHeap(), 0, escaped_path );
+    HeapFree( GetProcessHeap(), 0, args );
+    HeapFree( GetProcessHeap(), 0, path );
     HeapFree( GetProcessHeap(), 0, description );
     HeapFree( GetProcessHeap(), 0, unix_link );
     HeapFree( GetProcessHeap(), 0, start_path );
