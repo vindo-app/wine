@@ -2845,11 +2845,11 @@ static BOOL init_xdg(void)
         return FALSE;
     }
 
-    programs_dir = heap_printf("%s/start/programs", wine_get_config_dir());
+    programs_dir = heap_printf("%s/menu/programs", wine_get_config_dir());
     if (programs_dir)
     {
         create_directories(programs_dir);
-        filetypes_dir = heap_printf("%s/start/filetypes", wine_get_config_dir());
+        filetypes_dir = heap_printf("%s/menu/filetypes", wine_get_config_dir());
         if (filetypes_dir) {
             create_directories(filetypes_dir);
         } else {
