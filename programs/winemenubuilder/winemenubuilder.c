@@ -1659,11 +1659,10 @@ static HKEY open_associations_reg_key(void)
     return NULL;
 }
 
-static BOOL has_association_changed(LPCWSTR extensionW, LPCSTR mimeType, LPCWSTR progId,
+static BOOL has_association_changed(LPCWSTR extensionW, LPCWSTR progId,
     LPCSTR appName)
 {
     static const WCHAR ProgIDW[] = {'P','r','o','g','I','D',0};
-    static const WCHAR MimeTypeW[] = {'M','i','m','e','T','y','p','e',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
     HKEY assocKey;
     BOOL ret;
@@ -1674,11 +1673,6 @@ static BOOL has_association_changed(LPCWSTR extensionW, LPCSTR mimeType, LPCWSTR
         WCHAR *value;
 
         ret = FALSE;
-
-        valueA = reg_get_val_utf8(assocKey, extensionW, MimeTypeW);
-        if (!valueA || lstrcmpA(valueA, mimeType))
-            ret = TRUE;
-        HeapFree(GetProcessHeap(), 0, valueA);
 
         value = reg_get_valW(assocKey, extensionW, ProgIDW);
         if (!value || strcmpW(value, progId))
@@ -1700,16 +1694,14 @@ static BOOL has_association_changed(LPCWSTR extensionW, LPCSTR mimeType, LPCWSTR
     return ret;
 }
 
-static void update_association(LPCWSTR extension, LPCSTR mimeType, LPCWSTR progId,
+static void update_association(LPCWSTR extension, LPCWSTR progId,
     LPCSTR appName, LPCSTR desktopFile)
 {
     static const WCHAR ProgIDW[] = {'P','r','o','g','I','D',0};
-    static const WCHAR MimeTypeW[] = {'M','i','m','e','T','y','p','e',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
     static const WCHAR DesktopFileW[] = {'D','e','s','k','t','o','p','F','i','l','e',0};
     HKEY assocKey = NULL;
     HKEY subkey = NULL;
-    WCHAR *mimeTypeW = NULL;
     WCHAR *appNameW = NULL;
     WCHAR *desktopFileW = NULL;
 
@@ -1726,13 +1718,6 @@ static void update_association(LPCWSTR extension, LPCSTR mimeType, LPCWSTR progI
         goto done;
     }
 
-    mimeTypeW = utf8_chars_to_wchars(mimeType);
-    if (mimeTypeW == NULL)
-    {
-        WINE_ERR("out of memory\n");
-        goto done;
-    }
-
     appNameW = utf8_chars_to_wchars(appName);
     if (appNameW == NULL)
     {
@@ -1740,7 +1725,6 @@ static void update_association(LPCWSTR extension, LPCSTR mimeType, LPCWSTR progI
         goto done;
     }
 
-    RegSetValueExW(subkey, MimeTypeW, 0, REG_SZ, (const BYTE*) mimeTypeW, (lstrlenW(mimeTypeW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, ProgIDW, 0, REG_SZ, (const BYTE*) progId, (lstrlenW(progId) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, AppNameW, 0, REG_SZ, (const BYTE*) appNameW, (lstrlenW(appNameW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, DesktopFileW, 0, REG_SZ, (const BYTE*) desktopFileW, (lstrlenW(desktopFileW) + 1) * sizeof(WCHAR));
@@ -1748,7 +1732,6 @@ static void update_association(LPCWSTR extension, LPCSTR mimeType, LPCWSTR progI
 done:
     RegCloseKey(assocKey);
     RegCloseKey(subkey);
-    HeapFree(GetProcessHeap(), 0, mimeTypeW);
     HeapFree(GetProcessHeap(), 0, appNameW);
     HeapFree(GetProcessHeap(), 0, desktopFileW);
 }
@@ -1833,14 +1816,14 @@ static BOOL is_extension_blacklisted(LPCWSTR extension)
 }
 
 static BOOL write_freedesktop_association_entry(const char *desktopPath, const char *dot_extension,
-                                                const char *friendlyAppName, const char *mimeType,
+                                                const char *friendlyAppName,
                                                 const char *progId)
 {
     BOOL ret = FALSE;
     FILE *desktop;
 
-    WINE_TRACE("writing association for file type %s, friendlyAppName=%s, MIME type %s, icon=%s to file %s\n",
-               wine_dbgstr_a(dot_extension), wine_dbgstr_a(friendlyAppName), wine_dbgstr_a(mimeType),
+    WINE_TRACE("writing association for file type %s, friendlyAppName=%s, icon=%s to file %s\n",
+               wine_dbgstr_a(dot_extension), wine_dbgstr_a(friendlyAppName),
                wine_dbgstr_a(progId), wine_dbgstr_a(desktopPath));
 
     desktop = fopen(desktopPath, "w");
@@ -1920,7 +1903,6 @@ static BOOL generate_associations()
             WCHAR *iconW = NULL;
             char *iconA = NULL;
             WCHAR *contentTypeW = NULL;
-            char *mimeTypeA = NULL;
             WCHAR *friendlyAppNameW = NULL;
             char *friendlyAppNameA = NULL;
             WCHAR *progIdW = NULL;
@@ -2010,15 +1992,15 @@ static BOOL generate_associations()
             else
                 goto end; /* no progID => not a file type association */
 
-            if (has_association_changed(extensionW, mimeTypeA, progIdW, friendlyAppNameA))
+            if (has_association_changed(extensionW, progIdW, friendlyAppNameA))
             {
                 char *desktopPath = heap_printf("%s/%s.%s.plist", filetypes_dir, nativeIdentifierA, &extensionA[1]);
                 if (desktopPath)
                 {
-                    if (write_freedesktop_association_entry(desktopPath, extensionA, friendlyAppNameA, mimeTypeA, progIdA))
+                    if (write_freedesktop_association_entry(desktopPath, extensionA, friendlyAppNameA, progIdA))
                     {
                         hasChanged = TRUE;
-                        update_association(extensionW, mimeTypeA, progIdW, friendlyAppNameA, desktopPath);
+                        update_association(extensionW, progIdW, friendlyAppNameA, desktopPath);
                     }
                     HeapFree(GetProcessHeap(), 0, desktopPath);
                 }
@@ -2033,7 +2015,6 @@ static BOOL generate_associations()
             HeapFree(GetProcessHeap(), 0, iconW);
             HeapFree(GetProcessHeap(), 0, iconA);
             HeapFree(GetProcessHeap(), 0, contentTypeW);
-            HeapFree(GetProcessHeap(), 0, mimeTypeA);
             HeapFree(GetProcessHeap(), 0, friendlyAppNameW);
             HeapFree(GetProcessHeap(), 0, friendlyAppNameA);
             HeapFree(GetProcessHeap(), 0, progIdW);
