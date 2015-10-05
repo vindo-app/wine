@@ -2236,7 +2236,7 @@ static BOOL InvokeShellLinker( IShellLinkW *sl, LPCWSTR link, BOOL bWait )
         char *link_arg = escape_unix_link_arg(unix_link);
         if (link_arg)
         {
-            r = !write_menu_entry(unix_link, link_name, start_path, link_arg, description, work_dir, native_identifier);
+            r = !write_menu_entry(unix_link, link_name, path, args, description, work_dir, native_identifier);
             HeapFree(GetProcessHeap(), 0, link_arg);
         }
     }
