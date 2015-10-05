@@ -174,14 +174,6 @@ typedef struct
         int   nIndex;
 } ENUMRESSTRUCT;
 
-struct xdg_mime_type
-{
-    char *mimeType;
-    char *glob;
-    char *lower_glob;
-    struct list entry;
-};
-
 DEFINE_GUID(CLSID_WICIcnsEncoder, 0x312fb6f1,0xb767,0x409d,0x8a,0x6d,0x0f,0xc1,0x54,0xd4,0xf0,0x5c);
 
 static char *programs_dir;
@@ -1725,6 +1717,13 @@ static void update_association(LPCWSTR extension, LPCWSTR progId,
         goto done;
     }
 
+    desktopFileW = utf8_chars_to_wchars(desktopFile);
+    if (desktopFileW == NULL)
+    {
+        WINE_ERR("out of memory\n");
+        goto done;
+    }
+
     RegSetValueExW(subkey, ProgIDW, 0, REG_SZ, (const BYTE*) progId, (lstrlenW(progId) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, AppNameW, 0, REG_SZ, (const BYTE*) appNameW, (lstrlenW(appNameW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, DesktopFileW, 0, REG_SZ, (const BYTE*) desktopFileW, (lstrlenW(desktopFileW) + 1) * sizeof(WCHAR));
@@ -1815,7 +1814,7 @@ static BOOL is_extension_blacklisted(LPCWSTR extension)
     return FALSE;
 }
 
-static BOOL write_freedesktop_association_entry(const char *desktopPath, const char *dot_extension,
+static BOOL write_association_entry(const char *desktopPath, const char *dot_extension,
                                                 const char *friendlyAppName,
                                                 const char *progId)
 {
@@ -1997,7 +1996,7 @@ static BOOL generate_associations()
                 char *desktopPath = heap_printf("%s/%s.%s.plist", filetypes_dir, nativeIdentifierA, &extensionA[1]);
                 if (desktopPath)
                 {
-                    if (write_freedesktop_association_entry(desktopPath, extensionA, friendlyAppNameA, progIdA))
+                    if (write_association_entry(desktopPath, extensionA, friendlyAppNameA, progIdA))
                     {
                         hasChanged = TRUE;
                         update_association(extensionW, progIdW, friendlyAppNameA, desktopPath);
