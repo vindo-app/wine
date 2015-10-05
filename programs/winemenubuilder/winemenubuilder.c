@@ -1303,7 +1303,7 @@ static BOOL write_desktop_entry(const char *unix_link, const char *location, con
 
     fprintf(file, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
     fprintf(file, "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
-    fprintf(file, "<plist version=\"1.0\"\n");
+    fprintf(file, "<plist version=\"1.0\">\n");
     fprintf(file, "<dict>\n");
 
     fprintf(file, "    <key>Name</key>\n");
@@ -1830,7 +1830,7 @@ static BOOL write_association_entry(const char *desktopPath, const char *dot_ext
     {
         fprintf(desktop, "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
         fprintf(desktop, "<!DOCTYPE plist PUBLIC \"-//Apple Computer//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n");
-        fprintf(desktop, "<plist version=\"1.0\"\n");
+        fprintf(desktop, "<plist version=\"1.0\">\n");
         fprintf(desktop, "<dict>\n");
 
         fprintf(desktop, "    <key>Name</key>\n");
