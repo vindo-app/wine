@@ -101,6 +101,7 @@
 #include "wine/unicode.h"
 #include "wine/debug.h"
 #include "wine/server.h"
+#define NTDLL_KERNELSPACE
 #include "ntdll_misc.h"
 
 #include "winternl.h"
