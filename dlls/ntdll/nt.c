@@ -57,6 +57,7 @@
 #include "wine/unicode.h"
 #include "windef.h"
 #include "winternl.h"
+#define NTDLL_KERNELSPACE
 #include "ntdll_misc.h"
 #include "wine/server.h"
 #include "ddk/wdm.h"

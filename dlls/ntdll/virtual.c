@@ -55,6 +55,7 @@
 #include "wine/exception.h"
 #include "wine/list.h"
 #include "wine/debug.h"
+#define NTDLL_KERNELSPACE
 #include "ntdll_misc.h"
 
 WINE_DEFAULT_DEBUG_CHANNEL(virtual);
