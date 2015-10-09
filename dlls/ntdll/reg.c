@@ -36,6 +36,7 @@
 #include "ntstatus.h"
 #define WIN32_NO_STATUS
 #include "wine/library.h"
+#define NTDLL_KERNELSPACE
 #include "ntdll_misc.h"
 #include "wine/debug.h"
 #include "wine/unicode.h"

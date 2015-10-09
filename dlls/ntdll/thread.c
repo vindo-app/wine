@@ -44,6 +44,7 @@
 #include "wine/server.h"
 #include "wine/debug.h"
 #include "winbase.h"
+#define NTDLL_KERNELSPACE
 #include "ntdll_misc.h"
 #include "ddk/wdm.h"
 #include "wine/exception.h"

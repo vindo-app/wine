@@ -30,6 +30,8 @@
 #include "wine/debug.h"
 #include "wine/server.h"
 
+#include "thunks.h"
+
 #define MAX_NT_PATH_LENGTH 277
 
 #define MAX_DOS_DRIVES 26
