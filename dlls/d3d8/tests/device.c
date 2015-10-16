@@ -257,7 +257,7 @@ static void test_swapchain(void)
     IDirect3DSwapChain8 *swapchain1;
     IDirect3DSwapChain8 *swapchain2;
     IDirect3DSwapChain8 *swapchain3;
-    IDirect3DSurface8 *backbuffer;
+    IDirect3DSurface8 *backbuffer, *stereo_buffer;
     D3DPRESENT_PARAMETERS d3dpp;
     IDirect3DDevice8 *device;
     IDirect3D8 *d3d;
@@ -285,6 +285,24 @@ static void test_swapchain(void)
     hr = IDirect3DDevice8_GetBackBuffer(device, 1, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
     ok(hr == D3DERR_INVALIDCALL, "Got unexpected hr %#x.\n", hr);
     ok(!backbuffer, "The back buffer pointer is %p, expected NULL.\n", backbuffer);
+
+    hr = IDirect3DDevice8_GetBackBuffer(device, 0, D3DBACKBUFFER_TYPE_MONO, &backbuffer);
+    ok(SUCCEEDED(hr), "Failed to get back buffer, hr %#x.\n", hr);
+    IDirect3DSurface8_Release(backbuffer);
+
+    /* The back buffer type value is ignored. */
+    hr = IDirect3DDevice8_GetBackBuffer(device, 0, D3DBACKBUFFER_TYPE_LEFT, &stereo_buffer);
+    ok(SUCCEEDED(hr), "Failed to get the back buffer, hr %#x.\n", hr);
+    ok(stereo_buffer == backbuffer, "Expected left back buffer = %p, got %p.\n", backbuffer, stereo_buffer);
+    IDirect3DSurface8_Release(stereo_buffer);
+    hr = IDirect3DDevice8_GetBackBuffer(device, 0, D3DBACKBUFFER_TYPE_RIGHT, &stereo_buffer);
+    ok(SUCCEEDED(hr), "Failed to get the back buffer, hr %#x.\n", hr);
+    ok(stereo_buffer == backbuffer, "Expected right back buffer = %p, got %p.\n", backbuffer, stereo_buffer);
+    IDirect3DSurface8_Release(stereo_buffer);
+    hr = IDirect3DDevice8_GetBackBuffer(device, 0, (D3DBACKBUFFER_TYPE)0xdeadbeef, &stereo_buffer);
+    ok(SUCCEEDED(hr), "Failed to get the back buffer, hr %#x.\n", hr);
+    ok(stereo_buffer == backbuffer, "Expected unknown buffer = %p, got %p.\n", backbuffer, stereo_buffer);
+    IDirect3DSurface8_Release(stereo_buffer);
 
     memset(&d3dpp, 0, sizeof(d3dpp));
     d3dpp.Windowed = TRUE;
@@ -314,6 +332,20 @@ static void test_swapchain(void)
         ok(SUCCEEDED(hr), "Failed to get the 1st back buffer (%#08x)\n", hr);
         ok(backbuffer != NULL && backbuffer != (void *) 0xdeadbeef, "The back buffer is %p\n", backbuffer);
         if(backbuffer && backbuffer != (void *) 0xdeadbeef) IDirect3DSurface8_Release(backbuffer);
+
+        /* The back buffer type value is ignored. */
+        hr = IDirect3DSwapChain8_GetBackBuffer(swapchain3, 0, D3DBACKBUFFER_TYPE_LEFT, &stereo_buffer);
+        ok(SUCCEEDED(hr), "Failed to get the back buffer, hr %#x.\n", hr);
+        ok(stereo_buffer == backbuffer, "Expected left back buffer = %p, got %p.\n", backbuffer, stereo_buffer);
+        IDirect3DSurface8_Release(stereo_buffer);
+        hr = IDirect3DSwapChain8_GetBackBuffer(swapchain3, 0, D3DBACKBUFFER_TYPE_RIGHT, &stereo_buffer);
+        ok(SUCCEEDED(hr), "Failed to get the back buffer, hr %#x.\n", hr);
+        ok(stereo_buffer == backbuffer, "Expected right back buffer = %p, got %p.\n", backbuffer, stereo_buffer);
+        IDirect3DSurface8_Release(stereo_buffer);
+        hr = IDirect3DSwapChain8_GetBackBuffer(swapchain3, 0, (D3DBACKBUFFER_TYPE)0xdeadbeef, &stereo_buffer);
+        ok(SUCCEEDED(hr), "Failed to get the back buffer, hr %#x.\n", hr);
+        ok(stereo_buffer == backbuffer, "Expected unknown buffer = %p, got %p.\n", backbuffer, stereo_buffer);
+        IDirect3DSurface8_Release(stereo_buffer);
 
         backbuffer = (void *) 0xdeadbeef;
         hr = IDirect3DSwapChain8_GetBackBuffer(swapchain3, 1, 0, &backbuffer);
@@ -7277,36 +7309,44 @@ static void test_swapchain_parameters(void)
     tests[] =
     {
         /* Swap effect 0 is not allowed. */
-        {TRUE,  1, 0,                     D3DERR_INVALIDCALL},
-        {FALSE, 1, 0,                     D3DERR_INVALIDCALL},
+        {TRUE,  1, 0,                            D3DERR_INVALIDCALL},
+        {FALSE, 1, 0,                            D3DERR_INVALIDCALL},
 
         /* All (non-ex) swap effects are allowed in
          * windowed and fullscreen mode. */
-        {TRUE,  1, D3DSWAPEFFECT_DISCARD, D3D_OK},
-        {TRUE,  1, D3DSWAPEFFECT_FLIP,    D3D_OK},
-        {FALSE, 1, D3DSWAPEFFECT_DISCARD, D3D_OK},
-        {FALSE, 1, D3DSWAPEFFECT_FLIP,    D3D_OK},
-        {FALSE, 1, D3DSWAPEFFECT_COPY,    D3D_OK},
+        {TRUE,  1, D3DSWAPEFFECT_DISCARD,        D3D_OK},
+        {TRUE,  1, D3DSWAPEFFECT_FLIP,           D3D_OK},
+        {FALSE, 1, D3DSWAPEFFECT_DISCARD,        D3D_OK},
+        {FALSE, 1, D3DSWAPEFFECT_FLIP,           D3D_OK},
+        {FALSE, 1, D3DSWAPEFFECT_COPY,           D3D_OK},
 
         /* Only one backbuffer in copy mode. Reset allows it for
          * some reason. */
-        {TRUE,  0, D3DSWAPEFFECT_COPY,    D3D_OK},
-        {TRUE,  1, D3DSWAPEFFECT_COPY,    D3D_OK},
-        {TRUE,  2, D3DSWAPEFFECT_COPY,    D3DERR_INVALIDCALL},
-        {FALSE, 2, D3DSWAPEFFECT_COPY,    D3DERR_INVALIDCALL},
+        {TRUE,  0, D3DSWAPEFFECT_COPY,           D3D_OK},
+        {TRUE,  1, D3DSWAPEFFECT_COPY,           D3D_OK},
+        {TRUE,  2, D3DSWAPEFFECT_COPY,           D3DERR_INVALIDCALL},
+        {FALSE, 2, D3DSWAPEFFECT_COPY,           D3DERR_INVALIDCALL},
+        {TRUE,  0, D3DSWAPEFFECT_COPY_VSYNC,     D3D_OK},
+        {TRUE,  1, D3DSWAPEFFECT_COPY_VSYNC,     D3D_OK},
+        {TRUE,  2, D3DSWAPEFFECT_COPY_VSYNC,     D3DERR_INVALIDCALL},
+        {FALSE, 2, D3DSWAPEFFECT_COPY_VSYNC,     D3DERR_INVALIDCALL},
 
         /* Ok with the others, in fullscreen and windowed mode. */
-        {TRUE,  2, D3DSWAPEFFECT_DISCARD, D3D_OK},
-        {TRUE,  2, D3DSWAPEFFECT_FLIP,    D3D_OK},
-        {FALSE, 2, D3DSWAPEFFECT_DISCARD, D3D_OK},
-        {FALSE, 2, D3DSWAPEFFECT_FLIP,    D3D_OK},
+        {TRUE,  2, D3DSWAPEFFECT_DISCARD,        D3D_OK},
+        {TRUE,  2, D3DSWAPEFFECT_FLIP,           D3D_OK},
+        {FALSE, 2, D3DSWAPEFFECT_DISCARD,        D3D_OK},
+        {FALSE, 2, D3DSWAPEFFECT_FLIP,           D3D_OK},
+
+        /* Invalid swapeffects. */
+        {TRUE,  1, D3DSWAPEFFECT_COPY_VSYNC + 1, D3DERR_INVALIDCALL},
+        {FALSE, 1, D3DSWAPEFFECT_COPY_VSYNC + 1, D3DERR_INVALIDCALL},
 
         /* 3 is the highest allowed backbuffer count. */
-        {TRUE,  3, D3DSWAPEFFECT_DISCARD,    D3D_OK},
-        {TRUE,  4, D3DSWAPEFFECT_DISCARD,    D3DERR_INVALIDCALL},
-        {TRUE,  4, D3DSWAPEFFECT_FLIP,       D3DERR_INVALIDCALL},
-        {FALSE, 4, D3DSWAPEFFECT_DISCARD,    D3DERR_INVALIDCALL},
-        {FALSE, 4, D3DSWAPEFFECT_FLIP,       D3DERR_INVALIDCALL},
+        {TRUE,  3, D3DSWAPEFFECT_DISCARD,        D3D_OK},
+        {TRUE,  4, D3DSWAPEFFECT_DISCARD,        D3DERR_INVALIDCALL},
+        {TRUE,  4, D3DSWAPEFFECT_FLIP,           D3DERR_INVALIDCALL},
+        {FALSE, 4, D3DSWAPEFFECT_DISCARD,        D3DERR_INVALIDCALL},
+        {FALSE, 4, D3DSWAPEFFECT_FLIP,           D3DERR_INVALIDCALL},
     };
 
     window = CreateWindowA("static", "d3d8_test", WS_OVERLAPPEDWINDOW,

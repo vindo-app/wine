@@ -114,9 +114,7 @@ static HRESULT parse_header(BYTE *header, LONGLONG *plen, LONGLONG *pduration)
     int bitrate_index, freq_index, lsf = 1, mpeg1, layer, padding, bitrate, length;
     LONGLONG duration;
 
-    if (!(header[0] == 0xff && ((header[1]>>5)&0x7) == 0x7 &&
-          ((header[1]>>1)&0x3) != 0 && ((header[2]>>4)&0xf) != 0xf &&
-          ((header[2]>>2)&0x3) != 0x3))
+    if (MPEGSplitter_head_check(header) != MPEG_AUDIO_HEADER)
     {
         FIXME("Not a valid header: %02x:%02x:%02x:%02x\n", header[0], header[1], header[2], header[3]);
         return E_INVALIDARG;
@@ -206,9 +204,9 @@ static HRESULT FillBuffer(MPEGSplitterImpl *This, IMediaSample *pCurrentSample)
             if (SUCCEEDED(hr))
             {
                 IMediaSample_SetTime(sample, &rtSampleStart, &rtSampleStop);
-                IMediaSample_SetPreroll(sample, 0);
-                IMediaSample_SetDiscontinuity(sample, 0);
-                IMediaSample_SetSyncPoint(sample, 1);
+                IMediaSample_SetPreroll(sample, FALSE);
+                IMediaSample_SetDiscontinuity(sample, FALSE);
+                IMediaSample_SetSyncPoint(sample, TRUE);
                 hr = IAsyncReader_Request(pin->pReader, sample, 0);
                 if (SUCCEEDED(hr))
                 {
@@ -712,7 +710,7 @@ static HRESULT MPEGSplitter_first_request(LPVOID iface)
         IMediaSample_SetPreroll(sample, FALSE);
         IMediaSample_SetDiscontinuity(sample, TRUE);
         IMediaSample_SetSyncPoint(sample, 1);
-        This->seek = 0;
+        This->seek = FALSE;
 
         hr = IAsyncReader_Request(pin->pReader, sample, 0);
         if (SUCCEEDED(hr))
@@ -771,7 +769,7 @@ HRESULT MPEGSplitter_create(IUnknown * pUnkOuter, LPVOID * ppv)
         CoTaskMemFree(This);
         return hr;
     }
-    This->seek = 1;
+    This->seek = TRUE;
 
     /* Note: This memory is managed by the parser filter once created */
     *ppv = This;

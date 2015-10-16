@@ -172,10 +172,10 @@ done:
 
 static void test_create_surface(void)
 {
-    ID3D10Texture2D *texture;
-    IDXGISurface *surface;
     DXGI_SURFACE_DESC desc;
+    IDXGISurface *surface;
     IDXGIDevice *device;
+    IUnknown *texture;
     ULONG refcount;
     HRESULT hr;
 
@@ -196,7 +196,12 @@ static void test_create_surface(void)
 
     hr = IDXGISurface_QueryInterface(surface, &IID_ID3D10Texture2D, (void **)&texture);
     ok(SUCCEEDED(hr), "Surface should implement ID3D10Texture2D\n");
-    if (SUCCEEDED(hr)) ID3D10Texture2D_Release(texture);
+    IUnknown_Release(texture);
+
+    hr = IDXGISurface_QueryInterface(surface, &IID_ID3D11Texture2D, (void **)&texture);
+    ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
+            "Surface should implement ID3D11Texture2D.\n");
+    if (SUCCEEDED(hr)) IUnknown_Release(texture);
 
     IDXGISurface_Release(surface);
     refcount = IDXGIDevice_Release(device);
@@ -515,6 +520,7 @@ static void test_createswapchain(void)
     IUnknown_Release(obj);
     refcount = IDXGIDevice_Release(device);
     ok(!refcount, "Device has %u references left.\n", refcount);
+    DestroyWindow(creation_desc.OutputWindow);
 }
 
 static void test_create_factory(void)
@@ -1054,7 +1060,7 @@ static void test_swapchain_parameters(void)
         {TRUE,   0, 2 /* undefined */,                DXGI_ERROR_INVALID_CALL, DXGI_ERROR_INVALID_CALL,  0},
         {TRUE,   1, 2 /* undefined */,                DXGI_ERROR_INVALID_CALL, DXGI_ERROR_INVALID_CALL,  0},
         {TRUE,   2, 2 /* undefined */,                DXGI_ERROR_INVALID_CALL, DXGI_ERROR_INVALID_CALL,  0},
-        {TRUE,   0, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_ERROR_INVALID_CALL, DXGI_ERROR_INVALID_CALL,  0}, /*10 */
+        {TRUE,   0, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_ERROR_INVALID_CALL, DXGI_ERROR_INVALID_CALL,  0},
         {TRUE,   1, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, DXGI_ERROR_INVALID_CALL, DXGI_ERROR_INVALID_CALL,  0},
         {TRUE,   2, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, S_OK,                    DXGI_ERROR_INVALID_CALL,  1},
         {TRUE,   3, DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL, S_OK,                    DXGI_ERROR_INVALID_CALL,  2},

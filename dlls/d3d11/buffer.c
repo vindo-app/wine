@@ -109,6 +109,7 @@ static void STDMETHODCALLTYPE d3d11_buffer_GetDevice(ID3D11Buffer *iface, ID3D11
     TRACE("iface %p, device %p.\n", iface, device);
 
     *device = buffer->device;
+    ID3D11Device_AddRef(*device);
 }
 
 static HRESULT STDMETHODCALLTYPE d3d11_buffer_GetPrivateData(ID3D11Buffer *iface,
@@ -163,7 +164,11 @@ static UINT STDMETHODCALLTYPE d3d11_buffer_GetEvictionPriority(ID3D11Buffer *ifa
 
 static void STDMETHODCALLTYPE d3d11_buffer_GetDesc(ID3D11Buffer *iface, D3D11_BUFFER_DESC *desc)
 {
-    FIXME("iface %p, desc %p stub!\n", iface, desc);
+    struct d3d_buffer *buffer = impl_from_ID3D11Buffer(iface);
+
+    TRACE("iface %p, desc %p.\n", iface, desc);
+
+    *desc = buffer->desc;
 }
 
 static const struct ID3D11BufferVtbl d3d11_buffer_vtbl =
@@ -184,6 +189,14 @@ static const struct ID3D11BufferVtbl d3d11_buffer_vtbl =
     /* ID3D11Buffer methods */
     d3d11_buffer_GetDesc,
 };
+
+struct d3d_buffer *unsafe_impl_from_ID3D11Buffer(ID3D11Buffer *iface)
+{
+    if (!iface)
+        return NULL;
+    assert(iface->lpVtbl == &d3d11_buffer_vtbl);
+    return CONTAINING_RECORD(iface, struct d3d_buffer, ID3D11Buffer_iface);
+}
 
 /* ID3D10Buffer methods */
 
@@ -318,7 +331,16 @@ static void STDMETHODCALLTYPE d3d10_buffer_Unmap(ID3D10Buffer *iface)
 
 static void STDMETHODCALLTYPE d3d10_buffer_GetDesc(ID3D10Buffer *iface, D3D10_BUFFER_DESC *desc)
 {
-    FIXME("iface %p, desc %p stub!\n", iface, desc);
+    struct d3d_buffer *buffer = impl_from_ID3D10Buffer(iface);
+    const D3D11_BUFFER_DESC *d3d11_desc = &buffer->desc;
+
+    TRACE("iface %p, desc %p.\n", iface, desc);
+
+    desc->ByteWidth = d3d11_desc->ByteWidth;
+    desc->Usage = d3d10_usage_from_d3d11_usage(d3d11_desc->Usage);
+    desc->BindFlags = d3d10_bind_flags_from_d3d11_bind_flags(d3d11_desc->BindFlags);
+    desc->CPUAccessFlags = d3d10_cpu_access_flags_from_d3d11_cpu_access_flags(d3d11_desc->CPUAccessFlags);
+    desc->MiscFlags = d3d10_resource_misc_flags_from_d3d11_resource_misc_flags(d3d11_desc->MiscFlags);
 }
 
 static const struct ID3D10BufferVtbl d3d10_buffer_vtbl =
@@ -363,8 +385,8 @@ static const struct wined3d_parent_ops d3d10_buffer_wined3d_parent_ops =
     d3d10_buffer_wined3d_object_released,
 };
 
-HRESULT d3d_buffer_init(struct d3d_buffer *buffer, struct d3d_device *device,
-        const D3D10_BUFFER_DESC *desc, const D3D10_SUBRESOURCE_DATA *data)
+static HRESULT d3d_buffer_init(struct d3d_buffer *buffer, struct d3d_device *device,
+        const D3D11_BUFFER_DESC *desc, const D3D11_SUBRESOURCE_DATA *data)
 {
     struct wined3d_buffer_desc wined3d_desc;
     HRESULT hr;
@@ -374,12 +396,16 @@ HRESULT d3d_buffer_init(struct d3d_buffer *buffer, struct d3d_device *device,
     buffer->refcount = 1;
     wined3d_mutex_lock();
     wined3d_private_store_init(&buffer->private_store);
+    buffer->desc = *desc;
 
     wined3d_desc.byte_width = desc->ByteWidth;
-    wined3d_desc.usage = wined3d_usage_from_d3d10core(0, desc->Usage);
+    wined3d_desc.usage = wined3d_usage_from_d3d11(0, desc->Usage);
     wined3d_desc.bind_flags = desc->BindFlags;
     wined3d_desc.cpu_access_flags = desc->CPUAccessFlags;
     wined3d_desc.misc_flags = desc->MiscFlags;
+
+    if (desc->StructureByteStride)
+        FIXME("Ignoring structure byte stride %u.\n", desc->StructureByteStride);
 
     if (FAILED(hr = wined3d_buffer_create(device->wined3d_device, &wined3d_desc,
             (const struct wined3d_sub_resource_data *)data, buffer,
@@ -394,6 +420,28 @@ HRESULT d3d_buffer_init(struct d3d_buffer *buffer, struct d3d_device *device,
 
     buffer->device = &device->ID3D11Device_iface;
     ID3D11Device_AddRef(buffer->device);
+
+    return S_OK;
+}
+
+HRESULT d3d_buffer_create(struct d3d_device *device, const D3D11_BUFFER_DESC *desc,
+        const D3D11_SUBRESOURCE_DATA *data, struct d3d_buffer **buffer)
+{
+    struct d3d_buffer *object;
+    HRESULT hr;
+
+    if (!(object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object))))
+        return E_OUTOFMEMORY;
+
+    if (FAILED(hr = d3d_buffer_init(object, device, desc, data)))
+    {
+        WARN("Failed to initialize buffer, hr %#x.\n", hr);
+        HeapFree(GetProcessHeap(), 0, object);
+        return hr;
+    }
+
+    TRACE("Created buffer %p.\n", object);
+    *buffer = object;
 
     return S_OK;
 }

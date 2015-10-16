@@ -883,8 +883,8 @@ static VOID test_thread_processor(void)
 
     if (retMask == processMask)
     {
-        /* Show that the "all processors" flag is handled in ntdll/kernel */
-        DWORD_PTR mask = ~0;
+        /* Show that the "all processors" flag is handled in ntdll */
+        DWORD_PTR mask = ~0u;
         NTSTATUS status = pNtSetInformationThread(curthread, ThreadAffinityMask, &mask, sizeof(mask));
         ok(status == STATUS_SUCCESS, "Expected STATUS_SUCCESS in NtSetInformationThread, got %x\n", status);
     }
@@ -902,7 +902,7 @@ static VOID test_thread_processor(void)
     {
         SetLastError(0xdeadbeef);
         error=pSetThreadIdealProcessor(curthread,0);
-        if (GetLastError()!=ERROR_CALL_NOT_IMPLEMENTED)
+        if (GetLastError() != ERROR_CALL_NOT_IMPLEMENTED)
         {
             ok(error!=-1, "SetThreadIdealProcessor failed\n");
 
@@ -917,7 +917,7 @@ static VOID test_thread_processor(void)
                 error=pSetThreadIdealProcessor(curthread,65);
                 ok(error==-1, "SetThreadIdealProcessor succeeded with an illegal processor #\n");
                 ok(GetLastError()==ERROR_INVALID_PARAMETER,
-                  "Expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
+                   "Expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
             }
             else
             {
@@ -925,14 +925,14 @@ static VOID test_thread_processor(void)
                 error=pSetThreadIdealProcessor(curthread,MAXIMUM_PROCESSORS+1);
                 ok(error==-1, "SetThreadIdealProcessor succeeded with an illegal processor #\n");
                 ok(GetLastError()==ERROR_INVALID_PARAMETER,
-                  "Expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
+                   "Expected ERROR_INVALID_PARAMETER, got %d\n", GetLastError());
             }
 
             error=pSetThreadIdealProcessor(curthread,MAXIMUM_PROCESSORS);
             ok(error!=-1, "SetThreadIdealProcessor failed\n");
         }
         else
-          win_skip("SetThreadIdealProcessor is not implemented\n");
+            win_skip("SetThreadIdealProcessor is not implemented\n");
     }
 
     if (pGetThreadGroupAffinity && pSetThreadGroupAffinity)
@@ -958,7 +958,7 @@ static VOID test_thread_processor(void)
 
         /* show that the "all processors" flag is not supported for SetThreadGroupAffinity */
         affinity_new.Group = 0;
-        affinity_new.Mask  = ~0;
+        affinity_new.Mask  = ~0u;
         SetLastError(0xdeadbeef);
         ok(!pSetThreadGroupAffinity(curthread, &affinity_new, NULL), "SetThreadGroupAffinity succeeded\n");
         ok(GetLastError() == ERROR_INVALID_PARAMETER,
@@ -976,7 +976,7 @@ static VOID test_thread_processor(void)
         ok(GetLastError() == ERROR_NOACCESS,
            "Expected ERROR_NOACCESS, got %d\n", GetLastError());
 
-        /* show that the ERROR_NOACCESS was set in ntdll */
+        /* show that the access violation was detected in ntdll */
         status = pNtSetInformationThread(curthread, ThreadGroupInformation, NULL, sizeof(affinity_new));
         ok(status == STATUS_ACCESS_VIOLATION,
            "Expected STATUS_ACCESS_VIOLATION, got %08x\n", status);
@@ -990,7 +990,7 @@ static VOID test_thread_processor(void)
            affinity_new.Mask, affinity.Mask);
     }
     else
-      win_skip("Get/SetThreadGroupAffinity not available\n");
+        win_skip("Get/SetThreadGroupAffinity not available\n");
 }
 
 static VOID test_GetThreadExitCode(void)

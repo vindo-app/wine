@@ -49,6 +49,7 @@ WINE_DECLARE_DEBUG_CHANNEL(relay);
 WINE_DECLARE_DEBUG_CHANNEL(snoop);
 WINE_DECLARE_DEBUG_CHANNEL(loaddll);
 WINE_DECLARE_DEBUG_CHANNEL(imports);
+WINE_DECLARE_DEBUG_CHANNEL(pid);
 
 #ifdef _WIN64
 #define DEFAULT_SECURITY_COOKIE_64  (((ULONGLONG)0x00002b99 << 32) | 0x2ddfa232)
@@ -1121,8 +1122,12 @@ static void call_tls_callbacks( HMODULE module, UINT reason )
     for (callback = (const PIMAGE_TLS_CALLBACK *)dir->AddressOfCallBacks; *callback; callback++)
     {
         if (TRACE_ON(relay))
+        {
+            if (TRACE_ON(pid))
+                DPRINTF( "%04x:", GetCurrentProcessId() );
             DPRINTF("%04x:Call TLS callback (proc=%p,module=%p,reason=%s,reserved=0)\n",
                     GetCurrentThreadId(), *callback, module, reason_names[reason] );
+        }
         __TRY
         {
             call_dll_entry_point( (DLLENTRYPROC)*callback, module, reason, NULL );
@@ -1130,14 +1135,22 @@ static void call_tls_callbacks( HMODULE module, UINT reason )
         __EXCEPT_ALL
         {
             if (TRACE_ON(relay))
+            {
+                if (TRACE_ON(pid))
+                    DPRINTF( "%04x:", GetCurrentProcessId() );
                 DPRINTF("%04x:exception in TLS callback (proc=%p,module=%p,reason=%s,reserved=0)\n",
                         GetCurrentThreadId(), callback, module, reason_names[reason] );
+            }
             return;
         }
         __ENDTRY
         if (TRACE_ON(relay))
+        {
+            if (TRACE_ON(pid))
+                DPRINTF( "%04x:", GetCurrentProcessId() );
             DPRINTF("%04x:Ret  TLS callback (proc=%p,module=%p,reason=%s,reserved=0)\n",
                     GetCurrentThreadId(), *callback, module, reason_names[reason] );
+        }
     }
 }
 
@@ -1194,11 +1207,15 @@ static NTSTATUS MODULE_InitDLL( WINE_MODREF *wm, UINT reason, LPVOID lpReserved 
     if (wm->ldr.TlsIndex != -1) call_tls_callbacks( wm->ldr.BaseAddress, reason );
     if (!entry || !(wm->ldr.Flags & LDR_IMAGE_IS_DLL)) return STATUS_SUCCESS;
 
+    memset( mod_name, 0, sizeof(mod_name) );
+
     if (TRACE_ON(relay))
     {
         size_t len = min( wm->ldr.BaseDllName.Length, sizeof(mod_name)-sizeof(WCHAR) );
         memcpy( mod_name, wm->ldr.BaseDllName.Buffer, len );
         mod_name[len / sizeof(WCHAR)] = 0;
+        if (TRACE_ON(pid))
+            DPRINTF( "%04x:", GetCurrentProcessId() );
         DPRINTF("%04x:Call PE DLL (proc=%p,module=%p %s,reason=%s,res=%p)\n",
                 GetCurrentThreadId(), entry, module, debugstr_w(mod_name),
                 reason_names[reason], lpReserved );
@@ -1215,8 +1232,12 @@ static NTSTATUS MODULE_InitDLL( WINE_MODREF *wm, UINT reason, LPVOID lpReserved 
     __EXCEPT_ALL
     {
         if (TRACE_ON(relay))
+        {
+            if (TRACE_ON(pid))
+                DPRINTF( "%04x:", GetCurrentProcessId() );
             DPRINTF("%04x:exception in PE entry point (proc=%p,module=%p,reason=%s,res=%p)\n",
                     GetCurrentThreadId(), entry, module, reason_names[reason], lpReserved );
+        }
         status = GetExceptionCode();
     }
     __ENDTRY
@@ -1225,9 +1246,13 @@ static NTSTATUS MODULE_InitDLL( WINE_MODREF *wm, UINT reason, LPVOID lpReserved 
        to the dll. We cannot assume that this module has not been
        deleted.  */
     if (TRACE_ON(relay))
+    {
+        if (TRACE_ON(pid))
+            DPRINTF( "%04x:", GetCurrentProcessId() );
         DPRINTF("%04x:Ret  PE DLL (proc=%p,module=%p %s,reason=%s,res=%p) retval=%x\n",
                 GetCurrentThreadId(), entry, module, debugstr_w(mod_name),
                 reason_names[reason], lpReserved, retv );
+    }
     else TRACE("(%p,%s,%p) - RETURN %d\n", module, reason_names[reason], lpReserved, retv );
 
     return status;

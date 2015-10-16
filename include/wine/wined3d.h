@@ -503,13 +503,6 @@ enum wined3d_patch_edge_style
     WINED3D_PATCH_EDGE_CONTINUOUS           = 1,
 };
 
-enum wined3d_backbuffer_type
-{
-    WINED3D_BACKBUFFER_TYPE_MONO            = 0,
-    WINED3D_BACKBUFFER_TYPE_LEFT            = 1,
-    WINED3D_BACKBUFFER_TYPE_RIGHT           = 2,
-};
-
 enum wined3d_swap_effect
 {
     WINED3D_SWAP_EFFECT_DISCARD             = 1,
@@ -2485,8 +2478,6 @@ HRESULT __cdecl wined3d_surface_blt(struct wined3d_surface *dst_surface, const R
         const WINEDDBLTFX *blt_fx, enum wined3d_texture_filter_type filter);
 ULONG __cdecl wined3d_surface_decref(struct wined3d_surface *surface);
 struct wined3d_surface * __cdecl wined3d_surface_from_resource(struct wined3d_resource *resource);
-HRESULT __cdecl wined3d_surface_get_blt_status(const struct wined3d_surface *surface, DWORD flags);
-HRESULT __cdecl wined3d_surface_get_flip_status(const struct wined3d_surface *surface, DWORD flags);
 HRESULT __cdecl wined3d_surface_get_overlay_position(const struct wined3d_surface *surface, LONG *x, LONG *y);
 void * __cdecl wined3d_surface_get_parent(const struct wined3d_surface *surface);
 DWORD __cdecl wined3d_surface_get_pitch(const struct wined3d_surface *surface);
@@ -2512,7 +2503,7 @@ HRESULT __cdecl wined3d_swapchain_create(struct wined3d_device *device, struct w
         void *parent, const struct wined3d_parent_ops *parent_ops, struct wined3d_swapchain **swapchain);
 ULONG __cdecl wined3d_swapchain_decref(struct wined3d_swapchain *swapchain);
 struct wined3d_texture * __cdecl wined3d_swapchain_get_back_buffer(const struct wined3d_swapchain *swapchain,
-        UINT backbuffer_idx, enum wined3d_backbuffer_type backbuffer_type);
+        UINT backbuffer_idx);
 struct wined3d_device * __cdecl wined3d_swapchain_get_device(const struct wined3d_swapchain *swapchain);
 HRESULT __cdecl wined3d_swapchain_get_display_mode(const struct wined3d_swapchain *swapchain,
         struct wined3d_display_mode *mode, enum wined3d_display_rotation *rotation);
@@ -2573,14 +2564,10 @@ ULONG __cdecl wined3d_vertex_declaration_decref(struct wined3d_vertex_declaratio
 void * __cdecl wined3d_vertex_declaration_get_parent(const struct wined3d_vertex_declaration *declaration);
 ULONG __cdecl wined3d_vertex_declaration_incref(struct wined3d_vertex_declaration *declaration);
 
-ULONG __cdecl wined3d_volume_decref(struct wined3d_volume *volume);
 struct wined3d_volume * __cdecl wined3d_volume_from_resource(struct wined3d_resource *resource);
-void * __cdecl wined3d_volume_get_parent(const struct wined3d_volume *volume);
 struct wined3d_resource * __cdecl wined3d_volume_get_resource(struct wined3d_volume *volume);
-ULONG __cdecl wined3d_volume_incref(struct wined3d_volume *volume);
 HRESULT __cdecl wined3d_volume_map(struct wined3d_volume *volume,
         struct wined3d_map_desc *map_desc, const struct wined3d_box *box, DWORD flags);
-void __cdecl wined3d_volume_preload(struct wined3d_volume *volume);
 HRESULT __cdecl wined3d_volume_unmap(struct wined3d_volume *volume);
 
 /* Return the integer base-2 logarithm of x. Undefined for x == 0. */

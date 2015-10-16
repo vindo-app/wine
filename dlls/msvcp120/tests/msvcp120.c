@@ -18,9 +18,25 @@
 
 #include <locale.h>
 #include <stdio.h>
+#include <math.h>
+#include <limits.h>
 
 #include "wine/test.h"
 #include "winbase.h"
+
+static inline float __port_infinity(void)
+{
+    static const unsigned __inf_bytes = 0x7f800000;
+    return *(const float *)&__inf_bytes;
+}
+#define INFINITY __port_infinity()
+
+static inline float __port_nan(void)
+{
+    static const unsigned __nan_bytes = 0x7fc00000;
+    return *(const float *)&__nan_bytes;
+}
+#define NAN __port_nan()
 
 typedef int MSVCRT_long;
 typedef unsigned char MSVCP_bool;
@@ -50,6 +66,22 @@ enum file_type {
     type_unknown
 };
 
+static BOOL compare_float(float f, float g, unsigned int ulps)
+{
+    int x = *(int *)&f;
+    int y = *(int *)&g;
+
+    if (x < 0)
+        x = INT_MIN - x;
+    if (y < 0)
+        y = INT_MIN - y;
+
+    if (abs(x - y) > ulps)
+        return FALSE;
+
+    return TRUE;
+}
+
 static inline const char* debugstr_longlong(ULONGLONG ll)
 {
     static char string[17];
@@ -70,6 +102,9 @@ static _Cvtvec* (__cdecl *p__Getcvt)(_Cvtvec*);
 static void (CDECL *p__Call_once)(int *once, void (CDECL *func)(void));
 static void (CDECL *p__Call_onceEx)(int *once, void (CDECL *func)(void*), void *argv);
 static void (CDECL *p__Do_call)(void *this);
+static short (__cdecl *p__Dtest)(double *d);
+static short (__cdecl *p__Dscale)(double *d, int exp);
+static short (__cdecl *p__FExp)(float *x, float y, int exp);
 
 /* filesystem */
 static ULONGLONG(__cdecl *p_tr2_sys__File_size)(char const*);
@@ -92,6 +127,8 @@ static struct space_info (__cdecl *p_tr2_sys__Statvfs)(char const*);
 static struct space_info (__cdecl *p_tr2_sys__Statvfs_wchar)(WCHAR const*);
 static enum file_type (__cdecl *p_tr2_sys__Stat)(char const*, int *);
 static enum file_type (__cdecl *p_tr2_sys__Lstat)(char const*, int *);
+static __int64 (__cdecl *p_tr2_sys__Last_write_time)(char const*);
+static void (__cdecl *p_tr2_sys__Last_write_time_set)(char const*, __int64);
 
 static HMODULE msvcp;
 #define SETNOFAIL(x,y) x = (void*)GetProcAddress(msvcp,y)
@@ -119,6 +156,12 @@ static BOOL init(void)
             "_Call_onceEx");
     SET(p__Do_call,
             "_Do_call");
+    SET(p__Dtest,
+            "_Dtest");
+    SET(p__Dscale,
+            "_Dscale");
+    SET(p__FExp,
+            "_FExp");
     if(sizeof(void*) == 8) { /* 64-bit initialization */
         SET(p_tr2_sys__File_size,
                 "?_File_size@sys@tr2@std@@YA_KPEBD@Z");
@@ -160,6 +203,10 @@ static BOOL init(void)
                 "?_Stat@sys@tr2@std@@YA?AW4file_type@123@PEBDAEAH@Z");
         SET(p_tr2_sys__Lstat,
                 "?_Lstat@sys@tr2@std@@YA?AW4file_type@123@PEBDAEAH@Z");
+        SET(p_tr2_sys__Last_write_time,
+                "?_Last_write_time@sys@tr2@std@@YA_JPEBD@Z");
+        SET(p_tr2_sys__Last_write_time_set,
+                "?_Last_write_time@sys@tr2@std@@YAXPEBD_J@Z");
     } else {
         SET(p_tr2_sys__File_size,
                 "?_File_size@sys@tr2@std@@YA_KPBD@Z");
@@ -201,6 +248,10 @@ static BOOL init(void)
                 "?_Stat@sys@tr2@std@@YA?AW4file_type@123@PBDAAH@Z");
         SET(p_tr2_sys__Lstat,
                 "?_Lstat@sys@tr2@std@@YA?AW4file_type@123@PBDAAH@Z");
+        SET(p_tr2_sys__Last_write_time,
+                "?_Last_write_time@sys@tr2@std@@YA_JPBD@Z");
+        SET(p_tr2_sys__Last_write_time_set,
+                "?_Last_write_time@sys@tr2@std@@YAXPBD_J@Z");
     }
 
     msvcr = GetModuleHandleA("msvcr120.dll");
@@ -405,6 +456,137 @@ static void test__Do_call(void)
     vtbl_func0 = &pfunc;
     p__Do_call(&vtbl_func0);
     ok(cnt == 1, "func was not called\n");
+}
+
+static void test__Dtest(void)
+{
+    double d;
+    short ret;
+
+    d = 0;
+    ret = p__Dtest(&d);
+    ok(ret == FP_ZERO, "_Dtest(0) returned %x\n", ret);
+
+    d = 1;
+    ret = p__Dtest(&d);
+    ok(ret == FP_NORMAL, "_Dtest(1) returned %x\n", ret);
+
+    d = -1;
+    ret = p__Dtest(&d);
+    ok(ret == FP_NORMAL, "_Dtest(-1) returned %x\n", ret);
+
+    d = INFINITY;
+    ret = p__Dtest(&d);
+    ok(ret == FP_INFINITE, "_Dtest(INF) returned %x\n", ret);
+
+    d = NAN;
+    ret = p__Dtest(&d);
+    ok(ret == FP_NAN, "_Dtest(NAN) returned %x\n", ret);
+}
+
+static void test__Dscale(void)
+{
+    double d;
+    short ret;
+
+    d = 0;
+    ret = p__Dscale(&d, 0);
+    ok(d == 0, "d = %f\n", d);
+    ok(ret == FP_ZERO, "ret = %x\n", ret);
+
+    d = 0;
+    ret = p__Dscale(&d, 1);
+    ok(d == 0, "d = %f\n", d);
+    ok(ret == FP_ZERO, "ret = %x\n", ret);
+
+    d = 0;
+    ret = p__Dscale(&d, -1);
+    ok(d == 0, "d = %f\n", d);
+    ok(ret == FP_ZERO, "ret = %x\n", ret);
+
+    d = 1;
+    ret = p__Dscale(&d, 0);
+    ok(d == 1, "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 1;
+    ret = p__Dscale(&d, 1);
+    ok(d == 2, "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 1;
+    ret = p__Dscale(&d, -1);
+    ok(d == 0.5, "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 1;
+    ret = p__Dscale(&d, -99999);
+    ok(d == 0, "d = %f\n", d);
+    ok(ret == FP_ZERO, "ret = %x\n", ret);
+
+    d = 1;
+    ret = p__Dscale(&d, 999999);
+    ok(d == INFINITY, "d = %f\n", d);
+    ok(ret == FP_INFINITE, "ret = %x\n", ret);
+
+    d = NAN;
+    ret = p__Dscale(&d, 1);
+    ok(ret == FP_NAN, "ret = %x\n", ret);
+}
+
+static void test__FExp(void)
+{
+    float d;
+    short ret;
+
+    d = 0;
+    ret = p__FExp(&d, 0, 0);
+    ok(d == 0, "d = %f\n", d);
+    ok(ret == FP_ZERO, "ret = %x\n", ret);
+
+    d = 0;
+    ret = p__FExp(&d, 1, 0);
+    ok(d == 1.0, "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 0;
+    ret = p__FExp(&d, 1, 1);
+    ok(d == 2.0, "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 0;
+    ret = p__FExp(&d, 1, 2);
+    ok(d == 4.0, "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 0;
+    ret = p__FExp(&d, 10, 0);
+    ok(d == 10.0, "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 1;
+    ret = p__FExp(&d, 0, 0);
+    ok(d == 0, "d = %f\n", d);
+    ok(ret == FP_ZERO, "ret = %x\n", ret);
+
+    d = 1;
+    ret = p__FExp(&d, 1, 0);
+    ok(compare_float(d, 2.7182817, 4), "d = %f\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
+
+    d = 9e20;
+    ret = p__FExp(&d, 0, 0);
+    ok(d == 0, "d = %f\n", d);
+    ok(ret == FP_ZERO, "ret = %x\n", ret);
+
+    d = 90;
+    ret = p__FExp(&d, 1, 0);
+    ok(ret == FP_INFINITE, "ret = %x\n", ret);
+
+    d = 90;
+    ret = p__FExp(&d, 1, -50);
+    ok(compare_float(d, 1.0839359e+024, 4), "d = %g\n", d);
+    ok(ret == FP_NORMAL, "ret = %x\n", ret);
 }
 
 static void test_tr2_sys__File_size(void)
@@ -902,6 +1084,42 @@ static void test_tr2_sys__Stat(void)
     ok(RemoveDirectoryA("tr2_test_dir"), "expect tr2_test_dir to exist\n");
 }
 
+static void test_tr2_sys__Last_write_time(void)
+{
+    HANDLE file;
+    int ret;
+    __int64 last_write_time, newtime;
+    ret = p_tr2_sys__Make_dir("tr2_test_dir");
+    ok(ret == 1, "tr2_sys__Make_dir() expect 1 got %d\n", ret);
+
+    file = CreateFileA("tr2_test_dir/f1", GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, 0, NULL);
+    ok(file != INVALID_HANDLE_VALUE, "create file failed: INVALID_HANDLE_VALUE\n");
+    CloseHandle(file);
+
+    last_write_time = p_tr2_sys__Last_write_time("tr2_test_dir/f1");
+    newtime = last_write_time + 123456789;
+    p_tr2_sys__Last_write_time_set("tr2_test_dir/f1", newtime);
+    todo_wine ok(last_write_time == p_tr2_sys__Last_write_time("tr2_test_dir/f1"),
+            "last_write_time before modfied should not equal to last_write_time %s\n",
+            debugstr_longlong(last_write_time));
+
+    errno = 0xdeadbeef;
+    last_write_time = p_tr2_sys__Last_write_time("not_exist");
+    ok(errno == 0xdeadbeef, "tr2_sys__Last_write_time(): errno expect 0xdeadbeef, got %d\n", errno);
+    ok(last_write_time == 0, "expect 0 got %s\n", debugstr_longlong(last_write_time));
+    last_write_time = p_tr2_sys__Last_write_time(NULL);
+    ok(last_write_time == 0, "expect 0 got %s\n", debugstr_longlong(last_write_time));
+
+    p_tr2_sys__Last_write_time_set("not_exist", newtime);
+    errno = 0xdeadbeef;
+    p_tr2_sys__Last_write_time_set(NULL, newtime);
+    ok(errno == 0xdeadbeef, "tr2_sys__Last_write_time(): errno expect 0xdeadbeef, got %d\n", errno);
+
+    ok(DeleteFileA("tr2_test_dir/f1"), "expect tr2_test_dir/f1 to exist\n");
+    ret = p_tr2_sys__Remove_dir("tr2_test_dir");
+    ok(ret == 1, "test_tr2_sys__Remove_dir(): expect 1 got %d\n", ret);
+}
+
 START_TEST(msvcp120)
 {
     if(!init()) return;
@@ -910,6 +1128,9 @@ START_TEST(msvcp120)
     test__Getcvt();
     test__Call_once();
     test__Do_call();
+    test__Dtest();
+    test__Dscale();
+    test__FExp();
 
     test_tr2_sys__File_size();
     test_tr2_sys__Equivalent();
@@ -921,5 +1142,6 @@ START_TEST(msvcp120)
     test_tr2_sys__Rename();
     test_tr2_sys__Statvfs();
     test_tr2_sys__Stat();
+    test_tr2_sys__Last_write_time();
     FreeLibrary(msvcp);
 }

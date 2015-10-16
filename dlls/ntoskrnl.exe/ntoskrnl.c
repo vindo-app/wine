@@ -2465,6 +2465,22 @@ PLIST_ENTRY WINAPI ExfInterlockedRemoveHeadList(PLIST_ENTRY head, PKSPIN_LOCK lo
 }
 
 /***********************************************************************
+ *           KeEnterCriticalRegion  (NTOSKRNL.EXE.@)
+ */
+void WINAPI KeEnterCriticalRegion(void)
+{
+    FIXME(": stub\n");
+}
+
+/***********************************************************************
+ *           KeLeaveCriticalRegion  (NTOSKRNL.EXE.@)
+ */
+void WINAPI KeLeaveCriticalRegion(void)
+{
+    FIXME(": stub\n");
+}
+
+/***********************************************************************
  *           ProbeForRead   (NTOSKRNL.EXE.@)
  */
 VOID WINAPI ProbeForRead(PVOID address, SIZE_T length, ULONG alignment)

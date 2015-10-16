@@ -79,7 +79,7 @@ static NTSTATUS (WINAPI *pNtQueryInformationFile)(HANDLE, PIO_STATUS_BLOCK, PVOI
 static NTSTATUS (WINAPI *pNtQueryDirectoryFile)(HANDLE,HANDLE,PIO_APC_ROUTINE,PVOID,PIO_STATUS_BLOCK,
                                                 PVOID,ULONG,FILE_INFORMATION_CLASS,BOOLEAN,PUNICODE_STRING,BOOLEAN);
 static NTSTATUS (WINAPI *pNtQueryVolumeInformationFile)(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,FS_INFORMATION_CLASS);
-static NTSTATUS (WINAPI *pNtQueryFullAttributesFile)(POBJECT_ATTRIBUTES, PFILE_NETWORK_OPEN_INFORMATION);
+static NTSTATUS (WINAPI *pNtQueryFullAttributesFile)(const OBJECT_ATTRIBUTES*, FILE_NETWORK_OPEN_INFORMATION*);
 static NTSTATUS (WINAPI *pNtQueryEaFile)(HANDLE,PIO_STATUS_BLOCK,PVOID,ULONG,BOOLEAN,PVOID,ULONG,PULONG,BOOLEAN);
 
 static inline BOOL is_signaled( HANDLE obj )
@@ -176,9 +176,9 @@ static void create_file_test(void)
                                         '\\','f','a','i','l','i','n','g',0};
     static const WCHAR questionmarkInvalidNameW[] = {'a','f','i','l','e','?',0};
     static const WCHAR pipeInvalidNameW[]  = {'a','|','b',0};
-    static const WCHAR pathInvalidDosW[] = {'\\','D','o','s','D','e','v','i','c','e','s','\\',0};
     static const WCHAR pathInvalidNtW[] = {'\\','\\','?','\\',0};
     static const WCHAR pathInvalidNt2W[] = {'\\','?','?','\\',0};
+    static const WCHAR pathInvalidDosW[] = {'\\','D','o','s','D','e','v','i','c','e','s','\\',0};
     FILE_NETWORK_OPEN_INFORMATION info;
     NTSTATUS status;
     HANDLE dir, file;
@@ -186,6 +186,9 @@ static void create_file_test(void)
     OBJECT_ATTRIBUTES attr;
     IO_STATUS_BLOCK io;
     UNICODE_STRING nameW;
+    LARGE_INTEGER offset;
+    char buf[32];
+    DWORD ret;
 
     GetCurrentDirectoryW( MAX_PATH, path );
     pRtlDosPathNameToNtPathName_U( path, &nameW, NULL, NULL );
@@ -200,6 +203,19 @@ static void create_file_test(void)
     status = pNtCreateFile( &dir, GENERIC_READ, &attr, &io, NULL, 0, FILE_SHARE_READ|FILE_SHARE_WRITE,
                             FILE_OPEN, FILE_DIRECTORY_FILE, NULL, 0 );
     ok( !status, "open %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status );
+
+    U(io).Status = 0xdeadbeef;
+    offset.QuadPart = 0;
+    status = pNtReadFile( dir, NULL, NULL, NULL, &io, buf, sizeof(buf), &offset, NULL );
+    ok( status == STATUS_INVALID_DEVICE_REQUEST || status == STATUS_PENDING, "NtReadFile error %08x\n", status );
+    if (status == STATUS_PENDING)
+    {
+        ret = WaitForSingleObject( dir, 1000 );
+        ok( ret == WAIT_OBJECT_0, "WaitForSingleObject error %u\n", ret );
+        ok( U(io).Status == STATUS_INVALID_DEVICE_REQUEST,
+            "expected STATUS_INVALID_DEVICE_REQUEST, got %08x\n", U(io).Status );
+    }
+
     CloseHandle( dir );
 
     status = pNtCreateFile( &dir, GENERIC_READ, &attr, &io, NULL, 0, FILE_SHARE_READ|FILE_SHARE_WRITE,
@@ -302,37 +318,37 @@ static void create_file_test(void)
     pRtlFreeUnicodeString(&nameW);
 
     pRtlInitUnicodeString( &nameW, pathInvalidNtW );
-    status = pNtCreateFile(&dir, GENERIC_READ|SYNCHRONIZE, &attr, &io, NULL, 0,
-                           FILE_SHARE_READ, FILE_CREATE,
-                           FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    ok(status == STATUS_OBJECT_NAME_INVALID,
-       "open %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status);
+    status = pNtCreateFile( &dir, GENERIC_READ|SYNCHRONIZE, &attr, &io, NULL, 0,
+                            FILE_SHARE_READ, FILE_CREATE,
+                            FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0 );
+    ok( status == STATUS_OBJECT_NAME_INVALID,
+        "open %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status );
 
-    status = pNtQueryFullAttributesFile(&attr, &info);
-    todo_wine ok(status == STATUS_OBJECT_NAME_INVALID,
-                 "query %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status);
+    status = pNtQueryFullAttributesFile( &attr, &info );
+    todo_wine ok( status == STATUS_OBJECT_NAME_INVALID,
+                  "query %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status );
 
     pRtlInitUnicodeString( &nameW, pathInvalidNt2W );
-    status = pNtCreateFile(&dir, GENERIC_READ|SYNCHRONIZE, &attr, &io, NULL, 0,
-                           FILE_SHARE_READ, FILE_CREATE,
-                           FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    ok(status == STATUS_OBJECT_NAME_INVALID,
-       "open %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status);
+    status = pNtCreateFile( &dir, GENERIC_READ|SYNCHRONIZE, &attr, &io, NULL, 0,
+                            FILE_SHARE_READ, FILE_CREATE,
+                            FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0 );
+    ok( status == STATUS_OBJECT_NAME_INVALID,
+        "open %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status );
 
-    status = pNtQueryFullAttributesFile(&attr, &info);
-    ok(status == STATUS_OBJECT_NAME_INVALID,
-       "query %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status);
+    status = pNtQueryFullAttributesFile( &attr, &info );
+    ok( status == STATUS_OBJECT_NAME_INVALID,
+        "query %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status );
 
     pRtlInitUnicodeString( &nameW, pathInvalidDosW );
-    status = pNtCreateFile(&dir, GENERIC_READ|SYNCHRONIZE, &attr, &io, NULL, 0,
-                           FILE_SHARE_READ, FILE_CREATE,
-                           FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0);
-    ok(status == STATUS_OBJECT_NAME_INVALID,
-       "open %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status);
+    status = pNtCreateFile( &dir, GENERIC_READ|SYNCHRONIZE, &attr, &io, NULL, 0,
+                            FILE_SHARE_READ, FILE_CREATE,
+                            FILE_DIRECTORY_FILE|FILE_SYNCHRONOUS_IO_NONALERT, NULL, 0 );
+    ok( status == STATUS_OBJECT_NAME_INVALID,
+        "open %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status );
 
-    status = pNtQueryFullAttributesFile(&attr, &info);
-    ok(status == STATUS_OBJECT_NAME_INVALID,
-       "query %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status);
+    status = pNtQueryFullAttributesFile( &attr, &info );
+    ok( status == STATUS_OBJECT_NAME_INVALID,
+        "query %s failed %x\n", wine_dbgstr_w(nameW.Buffer), status );
 }
 
 static void open_file_test(void)

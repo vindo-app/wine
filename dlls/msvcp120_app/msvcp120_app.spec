@@ -1520,12 +1520,12 @@
 @ cdecl -arch=win64 ?_Iput@?$num_put@GV?$ostreambuf_iterator@GU?$char_traits@G@std@@@std@@@std@@AEBA?AV?$ostreambuf_iterator@GU?$char_traits@G@std@@@2@V32@AEAVios_base@2@GPEAD_K@Z(ptr ptr ptr ptr long ptr long) msvcp120.?_Iput@?$num_put@GV?$ostreambuf_iterator@GU?$char_traits@G@std@@@std@@@std@@AEBA?AV?$ostreambuf_iterator@GU?$char_traits@G@std@@@2@V32@AEAVios_base@2@GPEAD_K@Z
 @ cdecl -arch=win32 ?_Iput@?$num_put@_WV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@std@@@std@@ABA?AV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@2@V32@AAVios_base@2@_WPADI@Z(ptr ptr long ptr ptr long ptr long) msvcp120.?_Iput@?$num_put@_WV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@std@@@std@@ABA?AV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@2@V32@AAVios_base@2@_WPADI@Z
 @ cdecl -arch=win64 ?_Iput@?$num_put@_WV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@std@@@std@@AEBA?AV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@2@V32@AEAVios_base@2@_WPEAD_K@Z(ptr ptr ptr ptr long ptr long) msvcp120.?_Iput@?$num_put@_WV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@std@@@std@@AEBA?AV?$ostreambuf_iterator@_WU?$char_traits@_W@std@@@2@V32@AEAVios_base@2@_WPEAD_K@Z
-@ stub -arch=win32 ?_Last_write_time@sys@tr2@std@@YAXPBD_J@Z
-@ stub -arch=win64 ?_Last_write_time@sys@tr2@std@@YAXPEBD_J@Z
+@ cdecl -arch=win32 ?_Last_write_time@sys@tr2@std@@YAXPBD_J@Z(str int64) msvcp120.?_Last_write_time@sys@tr2@std@@YAXPBD_J@Z
+@ cdecl -arch=win64 ?_Last_write_time@sys@tr2@std@@YAXPEBD_J@Z(str int64) msvcp120.?_Last_write_time@sys@tr2@std@@YAXPEBD_J@Z
 @ stub -arch=win32 ?_Last_write_time@sys@tr2@std@@YAXPB_W_J@Z
 @ stub -arch=win64 ?_Last_write_time@sys@tr2@std@@YAXPEB_W_J@Z
-@ stub -arch=win32 ?_Last_write_time@sys@tr2@std@@YA_JPBD@Z
-@ stub -arch=win64 ?_Last_write_time@sys@tr2@std@@YA_JPEBD@Z
+@ cdecl -ret64 -arch=win32 ?_Last_write_time@sys@tr2@std@@YA_JPBD@Z(str) msvcp120.?_Last_write_time@sys@tr2@std@@YA_JPBD@Z
+@ cdecl -ret64 -arch=win64 ?_Last_write_time@sys@tr2@std@@YA_JPEBD@Z(str) msvcp120.?_Last_write_time@sys@tr2@std@@YA_JPEBD@Z
 @ stub -arch=win32 ?_Last_write_time@sys@tr2@std@@YA_JPB_W@Z
 @ stub -arch=win64 ?_Last_write_time@sys@tr2@std@@YA_JPEB_W@Z
 @ stub -arch=arm ?_Launch@_Pad@std@@QAAXPAU_Thrd_imp_t@@@Z
@@ -3684,22 +3684,22 @@
 @ stub _Dint
 @ stub _Dnorm
 @ cdecl _Do_call(ptr) msvcp120._Do_call
-@ stub _Dscale
+@ cdecl _Dscale(ptr long) msvcp120._Dscale
 @ stub _Dtento
-@ stub _Dtest
+@ cdecl _Dtest(ptr) msvcp120._Dtest
 @ stub _Dunscale
 @ extern _Eps msvcp120._Eps
-@ stub _Exp
+@ cdecl _Exp(ptr double long) msvcp120._Exp
 @ stub _FCosh
 @ extern _FDenorm msvcp120._FDenorm
 @ stub _FDint
 @ stub _FDnorm
-@ stub _FDscale
+@ cdecl _FDscale(ptr long) msvcp120._FDscale
 @ stub _FDtento
-@ stub _FDtest
+@ cdecl _FDtest(ptr) msvcp120._FDtest
 @ stub _FDunscale
 @ extern _FEps msvcp120._FEps
-@ stub _FExp
+@ cdecl _FExp(ptr float long) msvcp120._FExp
 @ extern _FInf msvcp120._FInf
 @ extern _FNan msvcp120._FNan
 @ stub _FPlsw
@@ -3732,9 +3732,9 @@
 @ stub _LCosh
 @ extern _LDenorm msvcp120._LDenorm
 @ stub _LDint
-@ stub _LDscale
+@ cdecl _LDscale(ptr long) msvcp120._LDscale
 @ stub _LDtento
-@ stub _LDtest
+@ cdecl _LDtest(ptr) msvcp120._LDtest
 @ stub _LDunscale
 @ extern _LEps msvcp120._LEps
 @ stub _LExp

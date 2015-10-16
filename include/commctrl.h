@@ -48,8 +48,8 @@ enum _LI_METRIC
     LIM_LARGE
 };
 
+HRESULT WINAPI LoadIconWithScaleDown(HINSTANCE, const WCHAR *, int, int, HICON *);
 HRESULT WINAPI LoadIconMetric(HINSTANCE, const WCHAR *, int, HICON *);
-HRESULT WINAPI LoadIconWithScaleDown(HINSTANCE, PCWSTR, int, int, HICON *);
 
 #define COMCTL32_VERSION                5  /* dll version */
 

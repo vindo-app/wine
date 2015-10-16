@@ -3,7 +3,7 @@
  *
  * Copyright 1997 Dimitrie O. Paun
  * Copyright 1998,2000 Eric Kohl
- * Copyright 2014 Michael Müller
+ * Copyright 2014-2015 Michael Müller
  *
  * This library is free software; you can redistribute it and/or
  * modify it under the terms of the GNU Lesser General Public
@@ -1642,10 +1642,21 @@ HRESULT WINAPI TaskDialogIndirect(const TASKDIALOGCONFIG *pTaskConfig, int *pnBu
 /***********************************************************************
  * LoadIconWithScaleDown [COMCTL32.@]
  */
-HRESULT WINAPI LoadIconWithScaleDown(HINSTANCE hinst, PCWSTR name, int cx, int cy, HICON *icon)
+HRESULT WINAPI LoadIconWithScaleDown(HINSTANCE hinst, const WCHAR *name, int cx, int cy, HICON *icon)
 {
-    FIXME("stub: %p %s %d %d %p\n", hinst, wine_dbgstr_w(name), cx, cy, icon);
-    return E_NOTIMPL;
+    TRACE("(%p, %s, %d, %d, %p)\n", hinst, debugstr_w(name), cx, cy, icon);
+
+    *icon = NULL;
+
+    if (!name)
+        return E_INVALIDARG;
+
+    *icon = LoadImageW(hinst, name, IMAGE_ICON, cx, cy,
+                       (hinst || IS_INTRESOURCE(name)) ? 0 : LR_LOADFROMFILE);
+    if (!*icon)
+        return HRESULT_FROM_WIN32(GetLastError());
+
+    return S_OK;
 }
 
 /***********************************************************************
@@ -1653,36 +1664,25 @@ HRESULT WINAPI LoadIconWithScaleDown(HINSTANCE hinst, PCWSTR name, int cx, int c
  */
 HRESULT WINAPI LoadIconMetric(HINSTANCE hinst, const WCHAR *name, int size, HICON *icon)
 {
-    int width, height;
+    int cx, cy;
 
-    TRACE("(%p %s %d %p)\n", hinst, debugstr_w(name), size, icon);
-
-    if (!icon)
-        return E_INVALIDARG;
-
-    /* Windows sets it to zero in a case of failure. */
-    *icon = NULL;
-
-    if (!name)
-        return E_INVALIDARG;
+    TRACE("(%p, %s, %d, %p)\n", hinst, debugstr_w(name), size, icon);
 
     if (size == LIM_SMALL)
     {
-        width  = GetSystemMetrics(SM_CXSMICON);
-        height = GetSystemMetrics(SM_CYSMICON);
+        cx = GetSystemMetrics(SM_CXSMICON);
+        cy = GetSystemMetrics(SM_CYSMICON);
     }
     else if (size == LIM_LARGE)
     {
-        width  = GetSystemMetrics(SM_CXICON);
-        height = GetSystemMetrics(SM_CYICON);
+        cx = GetSystemMetrics(SM_CXICON);
+        cy = GetSystemMetrics(SM_CYICON);
     }
     else
+    {
+        *icon = NULL;
         return E_INVALIDARG;
+    }
 
-    /* FIXME: This doesn't seem to work properly yet with file names. */
-    *icon = LoadImageW(hinst, name, IMAGE_ICON, width, height, 0);
-    if (*icon)
-        return S_OK;
-
-    return HRESULT_FROM_WIN32(GetLastError());
+    return LoadIconWithScaleDown(hinst, name, cx, cy, icon);
 }

@@ -3737,7 +3737,8 @@ static void test_select(void)
     ok(FD_ISSET(fdRead, &writefds), "fdRead socket is not in the set\n");
     len = sizeof(id);
     id = 0xdeadbeef;
-    ok(!getsockopt(fdWrite, SOL_SOCKET, SO_ERROR, (char*)&id, &len), "getsockopt failed with %d\n",WSAGetLastError());
+    ret = getsockopt(fdWrite, SOL_SOCKET, SO_ERROR, (char*)&id, &len);
+    ok(!ret, "getsockopt failed with %d\n", WSAGetLastError());
     ok(id == 0, "expected 0, got %d\n", id);
 
     /* When data is received the receiver gets the read descriptor */
@@ -3821,7 +3822,8 @@ static void test_select(void)
     ok(ret == 1, "expected 1, got %d\n", ret);
     len = sizeof(id);
     id = 0xdeadbeef;
-    ok(!getsockopt(fdWrite, SOL_SOCKET, SO_ERROR, (char*)&id, &len), "getsockopt failed with %d\n",WSAGetLastError());
+    ret = getsockopt(fdWrite, SOL_SOCKET, SO_ERROR, (char*)&id, &len);
+    ok(!ret, "getsockopt failed with %d\n", WSAGetLastError());
     ok(id == WSAECONNREFUSED, "expected 10061, got %d\n", id);
     ok(FD_ISSET(fdWrite, &exceptfds), "fdWrite socket is not in the set\n");
     ok(select_timeout.tv_usec == 250000, "select timeout should not have changed\n");
@@ -4423,7 +4425,6 @@ static void test_gethostbyname_hack(void)
         return;
     }
 
-    he = NULL;
     he = gethostbyname(name);
     ok(he != NULL, "gethostbyname(\"%s\") failed: %d\n", name, h_errno);
     if(he)
@@ -6555,18 +6556,17 @@ static void test_GetAddrInfoW(void)
     static const WCHAR zero[] = {'0',0};
     int i, ret;
     ADDRINFOW *result, *result2, *p, hint;
-    char computernameA[256];
-    WCHAR computername[sizeof(computernameA)];
+    WCHAR name[256];
+    DWORD size = sizeof(name)/sizeof(WCHAR);
 
     if (!pGetAddrInfoW || !pFreeAddrInfoW)
     {
         win_skip("GetAddrInfoW and/or FreeAddrInfoW not present\n");
         return;
     }
-    ret = gethostname(computernameA, sizeof(computernameA));
-    ok(!ret, "Expected gethostname to work\n");
-    MultiByteToWideChar(CP_ACP, 0, computernameA, -1, computername, sizeof(computernameA));
     memset(&hint, 0, sizeof(ADDRINFOW));
+    name[0] = 0;
+    GetComputerNameExW( ComputerNamePhysicalDnsHostname, name, &size );
 
     result = (ADDRINFOW *)0xdeadbeef;
     WSASetLastError(0xdeadbeef);
@@ -6630,25 +6630,6 @@ static void test_GetAddrInfoW(void)
     ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
     pFreeAddrInfoW(result);
 
-    ret = pGetAddrInfoW(computername, NULL, NULL, &result);
-    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
-    pFreeAddrInfoW(result);
-
-    result = NULL;
-    ret = pGetAddrInfoW(computername, empty, NULL, &result);
-    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
-    pFreeAddrInfoW(result);
-
-    result = NULL;
-    ret = pGetAddrInfoW(computername, zero, NULL, &result);
-    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
-    pFreeAddrInfoW(result);
-
-    result = NULL;
-    ret = pGetAddrInfoW(computername, port, NULL, &result);
-    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
-    pFreeAddrInfoW(result);
-
     result = NULL;
     ret = pGetAddrInfoW(localhost, NULL, &hint, &result);
     ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
@@ -6660,6 +6641,30 @@ static void test_GetAddrInfoW(void)
     ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
     ok(WSAGetLastError() == 0, "expected 0, got %d\n", WSAGetLastError());
     pFreeAddrInfoW(result);
+
+    /* try to get information from the computer name, result is the same
+     * as if requesting with an empty host name. */
+    ret = pGetAddrInfoW(name, NULL, NULL, &result);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+
+    ret = pGetAddrInfoW(empty, NULL, NULL, &result2);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+    compare_addrinfow(result, result2);
+    pFreeAddrInfoW(result);
+    pFreeAddrInfoW(result2);
+
+    ret = pGetAddrInfoW(name, empty, NULL, &result);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+
+    ret = pGetAddrInfoW(empty, empty, NULL, &result2);
+    ok(!ret, "GetAddrInfoW failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+    compare_addrinfow(result, result2);
+    pFreeAddrInfoW(result);
+    pFreeAddrInfoW(result2);
 
     result = (ADDRINFOW *)0xdeadbeef;
     WSASetLastError(0xdeadbeef);
@@ -6741,16 +6746,16 @@ static void test_getaddrinfo(void)
 {
     int i, ret;
     ADDRINFOA *result, *result2, *p, hint;
-    char computername[256];
+    CHAR name[256];
+    DWORD size = sizeof(name);
 
     if (!pgetaddrinfo || !pfreeaddrinfo)
     {
         win_skip("getaddrinfo and/or freeaddrinfo not present\n");
         return;
     }
-    ret = gethostname(computername, sizeof(computername));
-    ok(!ret, "Expected gethostname to work\n");
     memset(&hint, 0, sizeof(ADDRINFOA));
+    GetComputerNameExA( ComputerNamePhysicalDnsHostname, name, &size );
 
     result = (ADDRINFOA *)0xdeadbeef;
     WSASetLastError(0xdeadbeef);
@@ -6816,26 +6821,6 @@ static void test_getaddrinfo(void)
     pfreeaddrinfo(result);
 
     result = NULL;
-    ret = pgetaddrinfo(computername, NULL, NULL, &result);
-    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
-    pfreeaddrinfo(result);
-
-    result = NULL;
-    ret = pgetaddrinfo(computername, "", NULL, &result);
-    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
-    pfreeaddrinfo(result);
-
-    result = NULL;
-    ret = pgetaddrinfo(computername, "0", NULL, &result);
-    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
-    pfreeaddrinfo(result);
-
-    result = NULL;
-    ret = pgetaddrinfo(computername, "80", NULL, &result);
-    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
-    pfreeaddrinfo(result);
-
-    result = NULL;
     ret = pgetaddrinfo("localhost", NULL, &hint, &result);
     ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
     pfreeaddrinfo(result);
@@ -6846,6 +6831,30 @@ static void test_getaddrinfo(void)
     ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
     ok(WSAGetLastError() == 0, "expected 0, got %d\n", WSAGetLastError());
     pfreeaddrinfo(result);
+
+    /* try to get information from the computer name, result is the same
+     * as if requesting with an empty host name. */
+    ret = pgetaddrinfo(name, NULL, NULL, &result);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+
+    ret = pgetaddrinfo("", NULL, NULL, &result2);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+    compare_addrinfo(result, result2);
+    pfreeaddrinfo(result);
+    pfreeaddrinfo(result2);
+
+    ret = pgetaddrinfo(name, "", NULL, &result);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+
+    ret = pgetaddrinfo("", "", NULL, &result2);
+    ok(!ret, "getaddrinfo failed with %d\n", WSAGetLastError());
+    ok(result != NULL, "GetAddrInfoW failed\n");
+    compare_addrinfo(result, result2);
+    pfreeaddrinfo(result);
+    pfreeaddrinfo(result2);
 
     result = (ADDRINFOA *)0xdeadbeef;
     WSASetLastError(0xdeadbeef);

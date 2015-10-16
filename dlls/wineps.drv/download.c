@@ -361,7 +361,7 @@ BOOL PSDRV_WriteSetDownloadFont(PHYSDEV dev, BOOL vertical)
     return TRUE;
 }
 
-void get_standard_glyph_name(WORD index, char *name)
+static void get_standard_glyph_name(WORD index, char *name)
 {
     static const GLYPHNAME nonbreakingspace = { -1, "nonbreakingspace" };
     static const GLYPHNAME nonmarkingreturn = { -1, "nonmarkingreturn" };
@@ -631,7 +631,7 @@ void get_standard_glyph_name(WORD index, char *name)
     snprintf(name, MAX_G_NAME + 1, "%s", glyph_table[index]->sz);
 }
 
-WORD get_post2_name_index(BYTE *post2header, DWORD size, WORD index)
+static int get_post2_name_index(BYTE *post2header, DWORD size, WORD index)
 {
     USHORT numberOfGlyphs = GET_BE_WORD(post2header);
     DWORD offset = (1 + index) * sizeof(USHORT);
@@ -639,42 +639,36 @@ WORD get_post2_name_index(BYTE *post2header, DWORD size, WORD index)
     if(offset + sizeof(USHORT) > size || index >= numberOfGlyphs)
     {
         FIXME("Index '%d' exceeds PostScript Format 2 table size (%d)\n", index, numberOfGlyphs);
-        return 0; /* .notdef */
+        return -1;
     }
     return GET_BE_WORD(post2header + offset);
 }
 
-void get_post2_custom_glyph_name(BYTE *post2header, DWORD size, WORD index, char *name)
+static void get_post2_custom_glyph_name(BYTE *post2header, DWORD size, WORD index, char *name)
 {
     USHORT numberOfGlyphs = GET_BE_WORD(post2header);
     int i, name_offset = (1 + numberOfGlyphs) * sizeof(USHORT);
-    BYTE name_length;
+    BYTE name_length = 0;
 
-    if(name_offset + sizeof(BYTE) > size)
+    for(i = 0; i <= index; i++)
     {
-        FIXME("Pascal name offset '%d' exceeds PostScript Format 2 table size (%d)\n",
-              name_offset + sizeof(BYTE), size);
-        return;
-    }
-    for(i = 0; i < index; i++)
-    {
-        name_length = (post2header + name_offset)[0];
-        name_offset += name_length + sizeof(BYTE);
+        name_offset += name_length;
         if(name_offset + sizeof(BYTE) > size)
         {
             FIXME("Pascal name offset '%d' exceeds PostScript Format 2 table size (%d)\n",
                   name_offset + sizeof(BYTE), size);
             return;
         }
+        name_length = (post2header + name_offset)[0];
+        if(name_offset + name_length > size)
+        {
+            FIXME("Pascal name offset '%d' exceeds PostScript Format 2 table size (%d)\n",
+                  name_offset + name_length, size);
+            return;
+        }
+        name_offset += sizeof(BYTE);
     }
-    name_length = min((post2header + name_offset)[0], MAX_G_NAME);
-    name_offset += sizeof(BYTE);
-    if(name_offset + name_length > size)
-    {
-        FIXME("Pascal name offset '%d' exceeds PostScript Format 2 table size (%d)\n",
-              name_offset + name_length, size);
-        return;
-    }
+    name_length = min(name_length, MAX_G_NAME);
     memcpy(name, post2header + name_offset, name_length);
     name[name_length] = 0;
 }
@@ -701,13 +695,13 @@ void get_glyph_name(HDC hdc, WORD index, char *name)
 
     /* attempt to obtain the glyph name from the 'post' table */
     size = GetFontData(hdc, MS_MAKE_TAG('p','o','s','t'), 0, NULL, 0);
-    if(size == 0 || size == GDI_ERROR)
+    if(size < sizeof(*post_header) || size == GDI_ERROR)
         return;
     post = HeapAlloc(GetProcessHeap(), 0, size);
     if(!post)
         return;
     size = GetFontData(hdc, MS_MAKE_TAG('p','o','s','t'), 0, post, size);
-    if(size == 0 || size == GDI_ERROR)
+    if(size < sizeof(*post_header) || size == GDI_ERROR)
         goto cleanup;
     post_header = (typeof(post_header))(post);
     /* note: only interested in the format for obtaining glyph names */
@@ -724,13 +718,21 @@ void get_glyph_name(HDC hdc, WORD index, char *name)
     else if(post_header->format == MAKELONG(0, 2))
     {
         BYTE *post2header = post + sizeof(*post_header);
-        WORD glyphNameIndex = get_post2_name_index(post2header, size - sizeof(*post_header), index);
+        int glyphNameIndex;
 
-        if(glyphNameIndex < 258)
+        size -= sizeof(*post_header);
+        if(size < sizeof(USHORT))
+        {
+            FIXME("PostScript Format 2 table is invalid (cannot fit header)\n");
+            goto cleanup;
+        }
+        glyphNameIndex = get_post2_name_index(post2header, size, index);
+        if(glyphNameIndex == -1)
+            goto cleanup; /* invalid index, use fallback name */
+        else if(glyphNameIndex < 258)
             get_standard_glyph_name(glyphNameIndex, name);
         else
-            get_post2_custom_glyph_name(post2header, size - sizeof(*post_header),
-                                        glyphNameIndex - 258, name);
+            get_post2_custom_glyph_name(post2header, size, glyphNameIndex - 258, name);
     }
     else
         FIXME("PostScript Format %d.%d glyph names are currently unsupported.\n",

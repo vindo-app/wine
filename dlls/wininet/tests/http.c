@@ -2169,6 +2169,8 @@ static DWORD CALLBACK server_thread(LPVOID param)
         {
             if (strstr(buffer, "Content-Length: 100"))
             {
+                if (strstr(buffer, "POST /test7b"))
+                    recvfrom(c, buffer, sizeof buffer, 0, NULL, NULL);
                 send(c, okmsg, sizeof okmsg-1, 0);
                 send(c, page1, sizeof page1-1, 0);
             }
@@ -2485,7 +2487,7 @@ static void test_proxy_indirect(int port)
     DWORD r, sz;
     char buffer[0x40];
 
-    hi = InternetOpenA(NULL, 0, NULL, NULL, 0);
+    hi = InternetOpenA(NULL, INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
     ok(hi != NULL, "open failed\n");
 
     hc = InternetConnectA(hi, "localhost", port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
@@ -2954,7 +2956,7 @@ static void test_header_handling_order(int port)
     connect = InternetConnectA(session, "localhost", port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
     ok(connect != NULL, "InternetConnect failed\n");
 
-    request = HttpOpenRequestA(connect, "POST", "/test7b", NULL, NULL, types, 0, 0);
+    request = HttpOpenRequestA(connect, "POST", "/test7b", NULL, NULL, types, INTERNET_FLAG_KEEP_CONNECTION, 0);
     ok(request != NULL, "HttpOpenRequest failed\n");
 
     ret = HttpAddRequestHeadersA(request, "Content-Length: 100\r\n", ~0u, HTTP_ADDREQ_FLAG_ADD_IF_NEW);
@@ -2962,7 +2964,7 @@ static void test_header_handling_order(int port)
 
     data_len = sizeof(data);
     memset(data, 'a', sizeof(data));
-    ret = HttpSendRequestA(request, connection, ~0u, data, data_len);
+    ret = HttpSendRequestA(request, NULL, 0, data, data_len);
     ok(ret, "HttpSendRequest failed: %u\n", GetLastError());
 
     status = 0;
@@ -3521,7 +3523,7 @@ static void test_no_content(int port)
 
     hCompleteEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
 
-    session = InternetOpenA("", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, INTERNET_FLAG_ASYNC);
+    session = InternetOpenA("", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, INTERNET_FLAG_ASYNC);
     ok(session != NULL,"InternetOpen failed with error %u\n", GetLastError());
 
     pInternetSetStatusCallbackA(session, callback);
@@ -3586,7 +3588,7 @@ static void test_conn_close(int port)
     hCompleteEvent = CreateEventW(NULL, FALSE, FALSE, NULL);
     conn_close_event = CreateEventW(NULL, FALSE, FALSE, NULL);
 
-    session = InternetOpenA("", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, INTERNET_FLAG_ASYNC);
+    session = InternetOpenA("", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, INTERNET_FLAG_ASYNC);
     ok(session != NULL,"InternetOpen failed with error %u\n", GetLastError());
 
     pInternetSetStatusCallbackA(session, callback);
@@ -4593,7 +4595,7 @@ static void test_accept_encoding(int port)
     HINTERNET ses, con, req;
     BOOL ret;
 
-    ses = InternetOpenA("winetest", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    ses = InternetOpenA("winetest", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
     ok(ses != NULL, "InternetOpen failed\n");
 
     con = InternetConnectA(ses, "localhost", port, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);
@@ -4631,7 +4633,7 @@ static void test_basic_auth_credentials_reuse(int port)
     DWORD status, size;
     BOOL ret;
 
-    ses = InternetOpenA( "winetest", 0, NULL, NULL, 0 );
+    ses = InternetOpenA( "winetest", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0 );
     ok( ses != NULL, "InternetOpenA failed\n" );
 
     con = InternetConnectA( ses, "localhost", port, "user", "pwd",
@@ -4654,7 +4656,7 @@ static void test_basic_auth_credentials_reuse(int port)
     InternetCloseHandle( con );
     InternetCloseHandle( ses );
 
-    ses = InternetOpenA( "winetest", 0, NULL, NULL, 0 );
+    ses = InternetOpenA( "winetest", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0 );
     ok( ses != NULL, "InternetOpenA failed\n" );
 
     con = InternetConnectA( ses, "localhost", port, NULL, NULL,
@@ -5967,7 +5969,7 @@ static void test_connection_failure(void)
     DWORD error;
     BOOL ret;
 
-    session = InternetOpenA("winetest", INTERNET_OPEN_TYPE_PRECONFIG, NULL, NULL, 0);
+    session = InternetOpenA("winetest", INTERNET_OPEN_TYPE_DIRECT, NULL, NULL, 0);
     ok(session != NULL, "failed to get session handle\n");
 
     connect = InternetConnectA(session, "localhost", 1, NULL, NULL, INTERNET_SERVICE_HTTP, 0, 0);

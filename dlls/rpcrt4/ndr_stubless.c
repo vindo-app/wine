@@ -1145,18 +1145,6 @@ static LONG_PTR *stub_do_args(MIDL_STUB_MESSAGE *pStubMsg,
     unsigned int i;
     LONG_PTR *retval_ptr = NULL;
 
-    if (phase == STUBLESS_FREE)
-    {
-        for (i = 0; i < number_of_params; i++)
-        {
-            unsigned char *pArg = pStubMsg->StackTop + params[i].stack_offset;
-            if (params[i].attr.MustFree)
-            {
-                call_freer(pStubMsg, pArg, &params[i]);
-            }
-        }
-    }
-
     for (i = 0; i < number_of_params; i++)
     {
         unsigned char *pArg = pStubMsg->StackTop + params[i].stack_offset;
@@ -1172,6 +1160,12 @@ static LONG_PTR *stub_do_args(MIDL_STUB_MESSAGE *pStubMsg,
         case STUBLESS_MARSHAL:
             if (params[i].attr.IsOut || params[i].attr.IsReturn)
                 call_marshaller(pStubMsg, pArg, &params[i]);
+            break;
+        case STUBLESS_MUSTFREE:
+            if (params[i].attr.MustFree)
+            {
+                call_freer(pStubMsg, pArg, &params[i]);
+            }
             break;
         case STUBLESS_FREE:
             if (params[i].attr.ServerAllocSize)
@@ -1463,6 +1457,7 @@ LONG WINAPI NdrStubCall2(
         case STUBLESS_INITOUT:
         case STUBLESS_CALCSIZE:
         case STUBLESS_MARSHAL:
+        case STUBLESS_MUSTFREE:
         case STUBLESS_FREE:
             retval_ptr = stub_do_args(&stubMsg, pFormat, phase, number_of_params);
             break;

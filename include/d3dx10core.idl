@@ -50,7 +50,7 @@ interface ID3DX10DataProcessor
     object,
     local,
     pointer_default(unique),
-    uuid(C93FECFA-6967-478a-ABBC-402D90621FCB)
+    uuid(c93fecfa-6967-478a-abbc-402d90621fcb)
 ]
 interface ID3DX10ThreadPump : IUnknown
 {

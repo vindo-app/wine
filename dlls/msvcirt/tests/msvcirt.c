@@ -27,6 +27,8 @@ typedef void (*vtable_ptr)(void);
 typedef LONG streamoff;
 typedef LONG streampos;
 typedef int filedesc;
+typedef void* (__cdecl *allocFunction)(LONG);
+typedef void (__cdecl *freeFunction)(void*);
 
 typedef enum {
     IOSTATE_goodbit   = 0x0,
@@ -102,6 +104,17 @@ typedef struct {
     int close;
 } filebuf;
 
+/* class strstreambuf */
+typedef struct {
+    streambuf base;
+    int dynamic;
+    int increase;
+    int unknown;
+    int constant;
+    allocFunction f_alloc;
+    freeFunction f_free;
+} strstreambuf;
+
 /* class ios */
 struct _ostream;
 typedef struct {
@@ -132,6 +145,7 @@ typedef struct _ostream {
 #endif
 
 static void* (__cdecl *p_operator_new)(unsigned int);
+static void (__cdecl *p_operator_delete)(void*);
 
 /* streambuf */
 static streambuf* (*__thiscall p_streambuf_reserve_ctor)(streambuf*, char*, int);
@@ -171,6 +185,20 @@ static int (*__thiscall p_filebuf_sync)(filebuf*);
 static int (*__thiscall p_filebuf_overflow)(filebuf*, int);
 static int (*__thiscall p_filebuf_underflow)(filebuf*);
 static streampos (*__thiscall p_filebuf_seekoff)(filebuf*, streamoff, ios_seek_dir, int);
+
+/* strstreambuf */
+static strstreambuf* (*__thiscall p_strstreambuf_dynamic_ctor)(strstreambuf*, int);
+static strstreambuf* (*__thiscall p_strstreambuf_funcs_ctor)(strstreambuf*, allocFunction, freeFunction);
+static strstreambuf* (*__thiscall p_strstreambuf_buffer_ctor)(strstreambuf*, char*, int, char*);
+static strstreambuf* (*__thiscall p_strstreambuf_ubuffer_ctor)(strstreambuf*, unsigned char*, int, unsigned char*);
+static strstreambuf* (*__thiscall p_strstreambuf_ctor)(strstreambuf*);
+static void (*__thiscall p_strstreambuf_dtor)(strstreambuf*);
+static int (*__thiscall p_strstreambuf_doallocate)(strstreambuf*);
+static void (*__thiscall p_strstreambuf_freeze)(strstreambuf*, int);
+static int (*__thiscall p_strstreambuf_overflow)(strstreambuf*, int);
+static streampos (*__thiscall p_strstreambuf_seekoff)(strstreambuf*, streamoff, ios_seek_dir, int);
+static streambuf* (*__thiscall p_strstreambuf_setbuf)(strstreambuf*, char*, int);
+static int (*__thiscall p_strstreambuf_underflow)(strstreambuf*);
 
 /* ios */
 static ios* (*__thiscall p_ios_copy_ctor)(ios*, const ios*);
@@ -278,6 +306,7 @@ static BOOL init(void)
 
     if(sizeof(void*) == 8) { /* 64-bit initialization */
         p_operator_new = (void*)GetProcAddress(msvcrt, "??2@YAPEAX_K@Z");
+        p_operator_delete = (void*)GetProcAddress(msvcrt, "??3@YAXPEAX@Z");
 
         SET(p_streambuf_reserve_ctor, "??0streambuf@@IEAA@PEADH@Z");
         SET(p_streambuf_ctor, "??0streambuf@@IEAA@XZ");
@@ -316,6 +345,19 @@ static BOOL init(void)
         SET(p_filebuf_underflow, "?underflow@filebuf@@UEAAHXZ");
         SET(p_filebuf_seekoff, "?seekoff@filebuf@@UEAAJJW4seek_dir@ios@@H@Z");
 
+        SET(p_strstreambuf_dynamic_ctor, "??0strstreambuf@@QEAA@H@Z");
+        SET(p_strstreambuf_funcs_ctor, "??0strstreambuf@@QEAA@P6APEAXJ@ZP6AXPEAX@Z@Z");
+        SET(p_strstreambuf_buffer_ctor, "??0strstreambuf@@QEAA@PEADH0@Z");
+        SET(p_strstreambuf_ubuffer_ctor, "??0strstreambuf@@QEAA@PEAEH0@Z");
+        SET(p_strstreambuf_ctor, "??0strstreambuf@@QEAA@XZ");
+        SET(p_strstreambuf_dtor, "??1strstreambuf@@UEAA@XZ");
+        SET(p_strstreambuf_doallocate, "?doallocate@strstreambuf@@MEAAHXZ");
+        SET(p_strstreambuf_freeze, "?freeze@strstreambuf@@QEAAXH@Z");
+        SET(p_strstreambuf_overflow, "?overflow@strstreambuf@@UEAAHH@Z");
+        SET(p_strstreambuf_seekoff, "?seekoff@strstreambuf@@UEAAJJW4seek_dir@ios@@H@Z");
+        SET(p_strstreambuf_setbuf, "?setbuf@strstreambuf@@UEAAPEAVstreambuf@@PEADH@Z");
+        SET(p_strstreambuf_underflow, "?underflow@strstreambuf@@UEAAHXZ");
+
         SET(p_ios_copy_ctor, "??0ios@@IEAA@AEBV0@@Z");
         SET(p_ios_ctor, "??0ios@@IEAA@XZ");
         SET(p_ios_sb_ctor, "??0ios@@QEAA@PEAVstreambuf@@@Z");
@@ -342,6 +384,7 @@ static BOOL init(void)
         SET(p_ios_pword, "?pword@ios@@QEBAAEAPEAXH@Z");
     } else {
         p_operator_new = (void*)GetProcAddress(msvcrt, "??2@YAPAXI@Z");
+        p_operator_delete = (void*)GetProcAddress(msvcrt, "??3@YAXPAX@Z");
 
         SET(p_streambuf_reserve_ctor, "??0streambuf@@IAE@PADH@Z");
         SET(p_streambuf_ctor, "??0streambuf@@IAE@XZ");
@@ -379,6 +422,19 @@ static BOOL init(void)
         SET(p_filebuf_overflow, "?overflow@filebuf@@UAEHH@Z");
         SET(p_filebuf_underflow, "?underflow@filebuf@@UAEHXZ");
         SET(p_filebuf_seekoff, "?seekoff@filebuf@@UAEJJW4seek_dir@ios@@H@Z");
+
+        SET(p_strstreambuf_dynamic_ctor, "??0strstreambuf@@QAE@H@Z");
+        SET(p_strstreambuf_funcs_ctor, "??0strstreambuf@@QAE@P6APAXJ@ZP6AXPAX@Z@Z");
+        SET(p_strstreambuf_buffer_ctor, "??0strstreambuf@@QAE@PADH0@Z");
+        SET(p_strstreambuf_ubuffer_ctor, "??0strstreambuf@@QAE@PAEH0@Z");
+        SET(p_strstreambuf_ctor, "??0strstreambuf@@QAE@XZ");
+        SET(p_strstreambuf_dtor, "??1strstreambuf@@UAE@XZ");
+        SET(p_strstreambuf_doallocate, "?doallocate@strstreambuf@@MAEHXZ");
+        SET(p_strstreambuf_freeze, "?freeze@strstreambuf@@QAEXH@Z");
+        SET(p_strstreambuf_overflow, "?overflow@strstreambuf@@UAEHH@Z");
+        SET(p_strstreambuf_seekoff, "?seekoff@strstreambuf@@UAEJJW4seek_dir@ios@@H@Z");
+        SET(p_strstreambuf_setbuf, "?setbuf@strstreambuf@@UAEPAVstreambuf@@PADH@Z");
+        SET(p_strstreambuf_underflow, "?underflow@strstreambuf@@UAEHXZ");
 
         SET(p_ios_copy_ctor, "??0ios@@IAE@ABV0@@Z");
         SET(p_ios_ctor, "??0ios@@IAE@XZ");
@@ -1375,6 +1431,381 @@ static void test_filebuf(void)
     CloseHandle(thread);
 }
 
+static void test_strstreambuf(void)
+{
+    strstreambuf ssb1, ssb2;
+    streambuf *pret;
+    char buffer[64], *pbuffer;
+    int ret;
+
+    memset(&ssb1, 0xab, sizeof(strstreambuf));
+    memset(&ssb2, 0xab, sizeof(strstreambuf));
+
+    /* constructors/destructor */
+    call_func2(p_strstreambuf_dynamic_ctor, &ssb1, 64);
+    ok(ssb1.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb1.base.allocated);
+    ok(ssb1.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb1.base.unbuffered);
+    ok(ssb1.dynamic == 1, "expected 1, got %d\n", ssb1.dynamic);
+    ok(ssb1.increase == 64, "expected 64, got %d\n", ssb1.increase);
+    ok(ssb1.constant == 0, "expected 0, got %d\n", ssb1.constant);
+    ok(ssb1.f_alloc == NULL, "expected %p, got %p\n", NULL, ssb1.f_alloc);
+    ok(ssb1.f_free == NULL, "expected %p, got %p\n", NULL, ssb1.f_free);
+    call_func1(p_strstreambuf_dtor, &ssb1);
+    call_func3(p_strstreambuf_funcs_ctor, &ssb2, (allocFunction)p_operator_new, p_operator_delete);
+    ok(ssb2.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb2.base.allocated);
+    ok(ssb2.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb2.base.unbuffered);
+    ok(ssb2.dynamic == 1, "expected 1, got %d\n", ssb2.dynamic);
+    ok(ssb2.increase == 1, "expected 1, got %d\n", ssb2.increase);
+    ok(ssb2.constant == 0, "expected 0, got %d\n", ssb2.constant);
+    ok(ssb2.f_alloc == (allocFunction)p_operator_new, "expected %p, got %p\n", p_operator_new, ssb2.f_alloc);
+    ok(ssb2.f_free == p_operator_delete, "expected %p, got %p\n", p_operator_delete, ssb2.f_free);
+    call_func1(p_strstreambuf_dtor, &ssb2);
+    memset(&ssb1, 0xab, sizeof(strstreambuf));
+    memset(&ssb2, 0xab, sizeof(strstreambuf));
+    call_func4(p_strstreambuf_buffer_ctor, &ssb1, buffer, 64, buffer + 20);
+    ok(ssb1.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb1.base.allocated);
+    ok(ssb1.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb1.base.unbuffered);
+    ok(ssb1.base.base == buffer, "wrong buffer, expected %p got %p\n", buffer, ssb1.base.base);
+    ok(ssb1.base.ebuf == buffer + 64, "wrong buffer end, expected %p got %p\n", buffer + 64, ssb1.base.ebuf);
+    ok(ssb1.base.eback == buffer, "wrong get base, expected %p got %p\n", buffer, ssb1.base.eback);
+    ok(ssb1.base.gptr == buffer, "wrong get pointer, expected %p got %p\n", buffer, ssb1.base.gptr);
+    ok(ssb1.base.egptr == buffer + 20, "wrong get end, expected %p got %p\n", buffer + 20, ssb1.base.egptr);
+    ok(ssb1.base.pbase == buffer + 20, "wrong put base, expected %p got %p\n", buffer + 20, ssb1.base.pbase);
+    ok(ssb1.base.pptr == buffer + 20, "wrong put pointer, expected %p got %p\n", buffer + 20, ssb1.base.pptr);
+    ok(ssb1.base.epptr == buffer + 64, "wrong put end, expected %p got %p\n", buffer + 64, ssb1.base.epptr);
+    ok(ssb1.dynamic == 0, "expected 0, got %d\n", ssb1.dynamic);
+    ok(ssb1.constant == 1, "expected 1, got %d\n", ssb1.constant);
+    call_func1(p_strstreambuf_dtor, &ssb1);
+    strcpy(buffer, "Test");
+    call_func4(p_strstreambuf_buffer_ctor, &ssb2, buffer, 0, buffer + 20);
+    ok(ssb2.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb2.base.allocated);
+    ok(ssb2.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb2.base.unbuffered);
+    ok(ssb2.base.base == buffer, "wrong buffer, expected %p got %p\n", buffer, ssb2.base.base);
+    ok(ssb2.base.ebuf == buffer + 4, "wrong buffer end, expected %p got %p\n", buffer + 4, ssb2.base.ebuf);
+    ok(ssb2.base.eback == buffer, "wrong get base, expected %p got %p\n", buffer, ssb2.base.eback);
+    ok(ssb2.base.gptr == buffer, "wrong get pointer, expected %p got %p\n", buffer, ssb2.base.gptr);
+    ok(ssb2.base.egptr == buffer + 20, "wrong get end, expected %p got %p\n", buffer + 20, ssb2.base.egptr);
+    ok(ssb2.base.pbase == buffer + 20, "wrong put base, expected %p got %p\n", buffer + 20, ssb2.base.pbase);
+    ok(ssb2.base.pptr == buffer + 20, "wrong put pointer, expected %p got %p\n", buffer + 20, ssb2.base.pptr);
+    ok(ssb2.base.epptr == buffer + 4, "wrong put end, expected %p got %p\n", buffer + 4, ssb2.base.epptr);
+    ok(ssb2.dynamic == 0, "expected 0, got %d\n", ssb2.dynamic);
+    ok(ssb2.constant == 1, "expected 1, got %d\n", ssb2.constant);
+    call_func1(p_strstreambuf_dtor, &ssb2);
+    memset(&ssb1, 0xab, sizeof(strstreambuf));
+    memset(&ssb2, 0xab, sizeof(strstreambuf));
+    call_func4(p_strstreambuf_buffer_ctor, &ssb1, NULL, 16, buffer + 20);
+    ok(ssb1.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb1.base.allocated);
+    ok(ssb1.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb1.base.unbuffered);
+    ok(ssb1.base.base == NULL, "wrong buffer, expected %p got %p\n", NULL, ssb1.base.base);
+    ok(ssb1.base.ebuf == (char*)16, "wrong buffer end, expected %p got %p\n", (char*)16, ssb1.base.ebuf);
+    ok(ssb1.base.eback == NULL, "wrong get base, expected %p got %p\n", NULL, ssb1.base.eback);
+    ok(ssb1.base.gptr == NULL, "wrong get pointer, expected %p got %p\n", NULL, ssb1.base.gptr);
+    ok(ssb1.base.egptr == buffer + 20, "wrong get end, expected %p got %p\n", buffer + 20, ssb1.base.egptr);
+    ok(ssb1.base.pbase == buffer + 20, "wrong put base, expected %p got %p\n", buffer + 20, ssb1.base.pbase);
+    ok(ssb1.base.pptr == buffer + 20, "wrong put pointer, expected %p got %p\n", buffer + 20, ssb1.base.pptr);
+    ok(ssb1.base.epptr == (char*)16, "wrong put end, expected %p got %p\n", (char*)16, ssb1.base.epptr);
+    ok(ssb1.dynamic == 0, "expected 0, got %d\n", ssb1.dynamic);
+    ok(ssb1.constant == 1, "expected 1, got %d\n", ssb1.constant);
+    call_func1(p_strstreambuf_dtor, &ssb1);
+    call_func4(p_strstreambuf_buffer_ctor, &ssb2, buffer, 0, NULL);
+    ok(ssb2.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb2.base.allocated);
+    ok(ssb2.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb2.base.unbuffered);
+    ok(ssb2.base.base == buffer, "wrong buffer, expected %p got %p\n", buffer, ssb2.base.base);
+    ok(ssb2.base.ebuf == buffer + 4, "wrong buffer end, expected %p got %p\n", buffer + 4, ssb2.base.ebuf);
+    ok(ssb2.base.eback == buffer, "wrong get base, expected %p got %p\n", buffer, ssb2.base.eback);
+    ok(ssb2.base.gptr == buffer, "wrong get pointer, expected %p got %p\n", buffer, ssb2.base.gptr);
+    ok(ssb2.base.egptr == buffer + 4, "wrong get end, expected %p got %p\n", buffer + 4, ssb2.base.egptr);
+    ok(ssb2.base.pbase == NULL, "wrong put base, expected %p got %p\n", NULL, ssb2.base.pbase);
+    ok(ssb2.base.pptr == NULL, "wrong put pointer, expected %p got %p\n", NULL, ssb2.base.pptr);
+    ok(ssb2.base.epptr == NULL, "wrong put end, expected %p got %p\n", NULL, ssb2.base.epptr);
+    ok(ssb2.dynamic == 0, "expected 0, got %d\n", ssb2.dynamic);
+    ok(ssb2.constant == 1, "expected 1, got %d\n", ssb2.constant);
+    call_func1(p_strstreambuf_dtor, &ssb2);
+    memset(&ssb1, 0xab, sizeof(strstreambuf));
+    memset(&ssb2, 0xab, sizeof(strstreambuf));
+    call_func4(p_strstreambuf_buffer_ctor, &ssb1, buffer, -5, buffer + 20);
+    ok(ssb1.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb1.base.allocated);
+    ok(ssb1.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb1.base.unbuffered);
+    ok(ssb1.base.base == buffer, "wrong buffer, expected %p got %p\n", buffer, ssb1.base.base);
+    ok(ssb1.base.ebuf == buffer + 0x7fffffff || ssb1.base.ebuf == (char*)-1,
+        "wrong buffer end, expected %p + 0x7fffffff or -1, got %p\n", buffer, ssb1.base.ebuf);
+    ok(ssb1.base.eback == buffer, "wrong get base, expected %p got %p\n", buffer, ssb1.base.eback);
+    ok(ssb1.base.gptr == buffer, "wrong get pointer, expected %p got %p\n", buffer, ssb1.base.gptr);
+    ok(ssb1.base.egptr == buffer + 20, "wrong get end, expected %p got %p\n", buffer + 20, ssb1.base.egptr);
+    ok(ssb1.base.pbase == buffer + 20, "wrong put base, expected %p got %p\n", buffer + 20, ssb1.base.pbase);
+    ok(ssb1.base.pptr == buffer + 20, "wrong put pointer, expected %p got %p\n", buffer + 20, ssb1.base.pptr);
+    ok(ssb1.base.epptr == buffer + 0x7fffffff || ssb1.base.epptr == (char*)-1,
+        "wrong put end, expected %p + 0x7fffffff or -1, got %p\n", buffer, ssb1.base.epptr);
+    ok(ssb1.dynamic == 0, "expected 0, got %d\n", ssb1.dynamic);
+    ok(ssb1.constant == 1, "expected 1, got %d\n", ssb1.constant);
+    call_func1(p_strstreambuf_ctor, &ssb2);
+    ok(ssb2.base.allocated == 0, "wrong allocate value, expected 0 got %d\n", ssb2.base.allocated);
+    ok(ssb2.base.unbuffered == 0, "wrong unbuffered value, expected 0 got %d\n", ssb2.base.unbuffered);
+    ok(ssb2.dynamic == 1, "expected 1, got %d\n", ssb2.dynamic);
+    ok(ssb2.increase == 1, "expected 1, got %d\n", ssb2.increase);
+    ok(ssb2.constant == 0, "expected 0, got %d\n", ssb2.constant);
+    ok(ssb2.f_alloc == NULL, "expected %p, got %p\n", NULL, ssb2.f_alloc);
+    ok(ssb2.f_free == NULL, "expected %p, got %p\n", NULL, ssb2.f_free);
+
+    /* freeze */
+    call_func2(p_strstreambuf_freeze, &ssb1, 0);
+    ok(ssb1.dynamic == 0, "expected 0, got %d\n", ssb1.dynamic);
+    ssb1.constant = 0;
+    call_func2(p_strstreambuf_freeze, &ssb1, 0);
+    ok(ssb1.dynamic == 1, "expected 1, got %d\n", ssb1.dynamic);
+    call_func2(p_strstreambuf_freeze, &ssb1, 3);
+    ok(ssb1.dynamic == 0, "expected 0, got %d\n", ssb1.dynamic);
+    ssb1.constant = 1;
+    call_func2(p_strstreambuf_freeze, &ssb2, 5);
+    ok(ssb2.dynamic == 0, "expected 0, got %d\n", ssb2.dynamic);
+    call_func2(p_strstreambuf_freeze, &ssb2, 0);
+    ok(ssb2.dynamic == 1, "expected 1, got %d\n", ssb2.dynamic);
+
+    /* doallocate */
+    ssb2.dynamic = 0;
+    ssb2.increase = 5;
+    ret = (int) call_func1(p_strstreambuf_doallocate, &ssb2);
+    ok(ret == 1, "return value %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 5, "expected %p, got %p\n", ssb2.base.base + 5, ssb2.base.ebuf);
+    ssb2.base.eback = ssb2.base.base;
+    ssb2.base.gptr = ssb2.base.base + 2;
+    ssb2.base.egptr = ssb2.base.base + 4;
+    strcpy(ssb2.base.base, "Check");
+    ret = (int) call_func1(p_strstreambuf_doallocate, &ssb2);
+    ok(ret == 1, "return value %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 10, "expected %p, got %p\n", ssb2.base.base + 10, ssb2.base.ebuf);
+    ok(ssb2.base.eback == ssb2.base.base, "wrong get base, expected %p got %p\n", ssb2.base.base, ssb2.base.eback);
+    ok(ssb2.base.gptr == ssb2.base.base + 2, "wrong get pointer, expected %p got %p\n", ssb2.base.base + 2, ssb2.base.gptr);
+    ok(ssb2.base.egptr == ssb2.base.base + 4, "wrong get end, expected %p got %p\n", ssb2.base.base + 4, ssb2.base.egptr);
+    ok(!strncmp(ssb2.base.base, "Check", 5), "strings are not equal\n");
+    ssb2.base.pbase = ssb2.base.pptr = ssb2.base.base + 4;
+    ssb2.base.epptr = ssb2.base.ebuf;
+    ssb2.increase = -3;
+    ret = (int) call_func1(p_strstreambuf_doallocate, &ssb2);
+    ok(ret == 1, "return value %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 11, "expected %p, got %p\n", ssb2.base.base + 11, ssb2.base.ebuf);
+    ok(ssb2.base.pbase == ssb2.base.base + 4, "wrong put base, expected %p got %p\n", ssb2.base.base + 4, ssb2.base.pbase);
+    ok(ssb2.base.pptr == ssb2.base.base + 4, "wrong put pointer, expected %p got %p\n", ssb2.base.base + 4, ssb2.base.pptr);
+    ok(ssb2.base.epptr == ssb2.base.base + 10, "wrong put end, expected %p got %p\n", ssb2.base.base + 10, ssb2.base.epptr);
+    ok(!strncmp(ssb2.base.base, "Check", 5), "strings are not equal\n");
+    ssb2.dynamic = 1;
+
+    /* setbuf */
+    pret = (streambuf*) call_func3(p_strstreambuf_setbuf, &ssb1, buffer + 16, 16);
+    ok(pret == &ssb1.base, "expected %p got %p\n", &ssb1.base, pret);
+    ok(ssb1.base.base == buffer, "wrong buffer, expected %p got %p\n", buffer, ssb1.base.base);
+    ok(ssb1.increase == 16, "expected 16, got %d\n", ssb1.increase);
+    pret = (streambuf*) call_func3(p_strstreambuf_setbuf, &ssb2, NULL, 2);
+    ok(pret == &ssb2.base, "expected %p got %p\n", &ssb2.base, pret);
+    ok(ssb2.increase == 2, "expected 2, got %d\n", ssb2.increase);
+    pret = (streambuf*) call_func3(p_strstreambuf_setbuf, &ssb2, buffer, 0);
+    ok(pret == &ssb2.base, "expected %p got %p\n", &ssb2.base, pret);
+    ok(ssb2.increase == 2, "expected 2, got %d\n", ssb2.increase);
+    pret = (streambuf*) call_func3(p_strstreambuf_setbuf, &ssb2, NULL, -2);
+    ok(pret == &ssb2.base, "expected %p got %p\n", &ssb2.base, pret);
+    ok(ssb2.increase == -2, "expected -2, got %d\n", ssb2.increase);
+
+    /* underflow */
+    ssb1.base.epptr = ssb1.base.ebuf = ssb1.base.base + 64;
+    ret = (int) call_func1(p_strstreambuf_underflow, &ssb1);
+    ok(ret == 'T', "expected 'T' got %d\n", ret);
+    ssb1.base.gptr = ssb1.base.egptr;
+    ret = (int) call_func1(p_strstreambuf_underflow, &ssb1);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ret = (int) call_func3(p_streambuf_xsputn, &ssb1.base, "Gotta make you understand", 5);
+    ok(ret == 5, "expected 5 got %d\n", ret);
+    ok(ssb1.base.pptr == buffer + 25, "wrong put pointer, expected %p got %p\n", buffer + 25, ssb1.base.pptr);
+    ret = (int) call_func1(p_strstreambuf_underflow, &ssb1);
+    ok(ret == 'G', "expected 'G' got %d\n", ret);
+    ok(ssb1.base.egptr == buffer + 25, "wrong get end, expected %p got %p\n", buffer + 25, ssb1.base.egptr);
+    ssb1.base.gptr = ssb1.base.egptr = ssb1.base.pptr = ssb1.base.epptr;
+    ret = (int) call_func1(p_strstreambuf_underflow, &ssb1);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ssb2.base.eback = ssb2.base.gptr = ssb2.base.egptr = NULL;
+    ssb2.base.pbase = ssb2.base.pptr = ssb2.base.epptr = NULL;
+    ret = (int) call_func1(p_strstreambuf_underflow, &ssb2);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ssb2.base.eback = ssb2.base.base;
+    ssb2.base.gptr = ssb2.base.egptr = ssb2.base.ebuf;
+    ret = (int) call_func1(p_strstreambuf_underflow, &ssb2);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+
+    /* overflow */
+    ssb1.base.pptr = ssb1.base.epptr - 1;
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb1, EOF);
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb1, 'A');
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ok(ssb1.base.pptr == ssb1.base.epptr, "wrong put pointer, expected %p got %p\n", ssb1.base.epptr, ssb1.base.pptr);
+    ok(*(ssb1.base.pptr - 1) == 'A', "expected 'A' got %d\n", *(ssb1.base.pptr - 1));
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb1, 'B');
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb1, EOF);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ssb2.dynamic = 0;
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb2, 'C');
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ssb2.dynamic = 1;
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb2, 'C');
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 12, "expected %p got %p\n", ssb2.base.base + 12, ssb2.base.ebuf);
+    ok(ssb2.base.gptr == ssb2.base.base + 11, "wrong get pointer, expected %p got %p\n", ssb2.base.base + 11, ssb2.base.gptr);
+    ok(ssb2.base.pbase == ssb2.base.base + 11, "wrong put base, expected %p got %p\n", ssb2.base.base + 11, ssb2.base.pbase);
+    ok(ssb2.base.pptr == ssb2.base.base + 12, "wrong put pointer, expected %p got %p\n", ssb2.base.base + 12, ssb2.base.pptr);
+    ok(ssb2.base.epptr == ssb2.base.base + 12, "wrong put end, expected %p got %p\n", ssb2.base.base + 12, ssb2.base.epptr);
+    ok(*(ssb2.base.pptr - 1) == 'C', "expected 'C' got %d\n", *(ssb2.base.pptr - 1));
+    ssb2.increase = 4;
+    ssb2.base.eback = ssb2.base.gptr = ssb2.base.egptr = NULL;
+    ssb2.base.pbase = ssb2.base.pptr = ssb2.base.epptr = NULL;
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb2, 'D');
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 16, "expected %p got %p\n", ssb2.base.base + 16, ssb2.base.ebuf);
+    ok(ssb2.base.gptr == NULL, "wrong get pointer, expected %p got %p\n", NULL, ssb2.base.gptr);
+    ok(ssb2.base.pbase == ssb2.base.base, "wrong put base, expected %p got %p\n", ssb2.base.base, ssb2.base.pbase);
+    ok(ssb2.base.pptr == ssb2.base.base + 1, "wrong put pointer, expected %p got %p\n", ssb2.base.base + 1, ssb2.base.pptr);
+    ok(ssb2.base.epptr == ssb2.base.base + 16, "wrong put end, expected %p got %p\n", ssb2.base.base + 16, ssb2.base.epptr);
+    ok(*(ssb2.base.pptr - 1) == 'D', "expected 'D' got %d\n", *(ssb2.base.pptr - 1));
+    ssb2.base.pbase = ssb2.base.base + 3;
+    ssb2.base.pptr = ssb2.base.epptr + 5;
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb2, 'E');
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 20, "expected %p got %p\n", ssb2.base.base + 20, ssb2.base.ebuf);
+    ok(ssb2.base.gptr == NULL, "wrong get pointer, expected %p got %p\n", NULL, ssb2.base.gptr);
+    ok(ssb2.base.pbase == ssb2.base.base + 3, "wrong put base, expected %p got %p\n", ssb2.base.base + 3, ssb2.base.pbase);
+    ok(ssb2.base.pptr == ssb2.base.base + 22, "wrong put pointer, expected %p got %p\n", ssb2.base.base + 22, ssb2.base.pptr);
+    ok(ssb2.base.epptr == ssb2.base.base + 20, "wrong put end, expected %p got %p\n", ssb2.base.base + 20, ssb2.base.epptr);
+    ok(*(ssb2.base.pptr - 1) == 'E', "expected 'E' got %d\n", *(ssb2.base.pptr - 1));
+    ssb2.base.egptr = ssb2.base.base + 2;
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb2, 'F');
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 24, "expected %p got %p\n", ssb2.base.base + 24, ssb2.base.ebuf);
+    ok(ssb2.base.gptr != NULL, "wrong get pointer, expected != NULL\n");
+    ok(ssb2.base.pbase == ssb2.base.base + 3, "wrong put base, expected %p got %p\n", ssb2.base.base + 3, ssb2.base.pbase);
+    ok(ssb2.base.pptr == ssb2.base.base + 23, "wrong put pointer, expected %p got %p\n", ssb2.base.base + 23, ssb2.base.pptr);
+    ok(ssb2.base.epptr == ssb2.base.base + 24, "wrong put end, expected %p got %p\n", ssb2.base.base + 24, ssb2.base.epptr);
+    ok(*(ssb2.base.pptr - 1) == 'F', "expected 'F' got %d\n", *(ssb2.base.pptr - 1));
+    ssb2.base.eback = ssb2.base.gptr = ssb2.base.base;
+    ssb2.base.epptr = NULL;
+    ret = (int) call_func2(p_strstreambuf_overflow, &ssb2, 'G');
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ok(ssb2.base.ebuf == ssb2.base.base + 28, "expected %p got %p\n", ssb2.base.base + 28, ssb2.base.ebuf);
+    ok(ssb2.base.gptr == ssb2.base.base, "wrong get pointer, expected %p got %p\n", ssb2.base.base, ssb2.base.gptr);
+    ok(ssb2.base.pbase == ssb2.base.base + 2, "wrong put base, expected %p got %p\n", ssb2.base.base + 2, ssb2.base.pbase);
+    ok(ssb2.base.pptr == ssb2.base.base + 3, "wrong put pointer, expected %p got %p\n", ssb2.base.base + 3, ssb2.base.pptr);
+    ok(ssb2.base.epptr == ssb2.base.base + 28, "wrong put end, expected %p got %p\n", ssb2.base.base + 28, ssb2.base.epptr);
+    ok(*(ssb2.base.pptr - 1) == 'G', "expected 'G' got %d\n", *(ssb2.base.pptr - 1));
+
+    /* seekoff */
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 0, SEEKDIR_beg, OPENMODE_in);
+    ok(ret == 0, "expected 0 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback, "wrong get pointer, expected %p got %p\n", ssb1.base.eback, ssb1.base.gptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 3, SEEKDIR_beg, OPENMODE_in);
+    ok(ret == 3, "expected 3 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 3, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 3, ssb1.base.gptr);
+    ssb1.base.egptr = ssb1.base.pbase;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 25, SEEKDIR_beg, OPENMODE_in);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 3, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 3, ssb1.base.gptr);
+    ssb1.base.gptr = ssb1.base.egptr;
+    ssb1.base.pptr = ssb1.base.pbase + 10;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 25, SEEKDIR_beg, OPENMODE_in);
+    ok(ret == 25, "expected 25 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 25, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 25, ssb1.base.gptr);
+    ok(ssb1.base.egptr == ssb1.base.pptr, "wrong get end, expected %p got %p\n", ssb1.base.pptr, ssb1.base.egptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, -24, SEEKDIR_cur, OPENMODE_in);
+    ok(ret == 1, "expected 1 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 1, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 1, ssb1.base.gptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, -5, SEEKDIR_cur, OPENMODE_in);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 1, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 1, ssb1.base.gptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 0, SEEKDIR_end, OPENMODE_in);
+    ok(ret == 30, "expected 30 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.egptr, "wrong get pointer, expected %p got %p\n", ssb1.base.egptr, ssb1.base.gptr);
+    ssb1.base.gptr = ssb1.base.eback;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, -2, SEEKDIR_end, OPENMODE_in);
+    ok(ret == 28, "expected 28 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.egptr - 2, "wrong get pointer, expected %p got %p\n", ssb1.base.egptr - 2, ssb1.base.gptr);
+    ssb1.base.gptr = ssb1.base.egptr;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, -5, SEEKDIR_end, OPENMODE_in);
+    ok(ret == 25, "expected 25 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.egptr - 5, "wrong get pointer, expected %p got %p\n", ssb1.base.egptr - 5, ssb1.base.gptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 1, SEEKDIR_end, OPENMODE_in);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.egptr - 5, "wrong get pointer, expected %p got %p\n", ssb1.base.egptr - 5, ssb1.base.gptr);
+    ssb1.base.gptr = ssb1.base.egptr;
+    ssb1.base.pptr = ssb1.base.egptr + 5;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 1, SEEKDIR_end, OPENMODE_in);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.egptr - 5, "wrong get pointer, expected %p got %p\n", ssb1.base.egptr - 5, ssb1.base.gptr);
+    ok(ssb1.base.egptr == ssb1.base.pptr, "wrong get end, expected %p got %p\n", ssb1.base.pptr, ssb1.base.egptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 3, SEEKDIR_beg, OPENMODE_out);
+    ok(ret == 3, "expected 3 got %d\n", ret);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 3, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 3, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, -2, SEEKDIR_beg, OPENMODE_out);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 3, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 3, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 50, SEEKDIR_beg, OPENMODE_out);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 3, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 3, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 5, SEEKDIR_cur, OPENMODE_out);
+    ok(ret == 8, "expected 8 got %d\n", ret);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 8, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 8, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, -2, SEEKDIR_end, OPENMODE_out);
+    ok(ret == 42, "expected 42 got %d\n", ret);
+    ok(ssb1.base.pptr == ssb1.base.epptr - 2, "wrong put pointer, expected %p got %p\n", ssb1.base.epptr - 2, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 0, SEEKDIR_end, OPENMODE_out);
+    ok(ret == 44, "expected 44 got %d\n", ret);
+    ok(ssb1.base.pptr == ssb1.base.epptr, "wrong put pointer, expected %p got %p\n", ssb1.base.epptr, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 5, SEEKDIR_beg, OPENMODE_in|OPENMODE_out);
+    ok(ret == 5, "expected 5 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 5, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 5, ssb1.base.gptr);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 5, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 5, ssb1.base.pptr);
+    ssb1.base.egptr = ssb1.base.pbase;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 21, SEEKDIR_beg, OPENMODE_in|OPENMODE_out);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 5, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 5, ssb1.base.gptr);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 5, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 5, ssb1.base.pptr);
+    ssb1.base.egptr = ssb1.base.epptr;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 50, SEEKDIR_beg, OPENMODE_in|OPENMODE_out);
+    ok(ret == EOF, "expected EOF got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 50, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 50, ssb1.base.gptr);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 5, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 5, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb1, 2, SEEKDIR_cur, OPENMODE_in|OPENMODE_out);
+    ok(ret == 7, "expected 7 got %d\n", ret);
+    ok(ssb1.base.gptr == ssb1.base.eback + 52, "wrong get pointer, expected %p got %p\n", ssb1.base.eback + 52, ssb1.base.gptr);
+    ok(ssb1.base.pptr == ssb1.base.pbase + 7, "wrong put pointer, expected %p got %p\n", ssb1.base.pbase + 7, ssb1.base.pptr);
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb2, 0, SEEKDIR_beg, OPENMODE_in|OPENMODE_out);
+    ok(ret == 0, "expected 0 got %d\n", ret);
+    ok(ssb2.base.gptr == ssb2.base.eback, "wrong get pointer, expected %p got %p\n", ssb2.base.eback, ssb2.base.gptr);
+    ok(ssb2.base.pptr == ssb2.base.pbase, "wrong put pointer, expected %p got %p\n", ssb2.base.pbase, ssb2.base.pptr);
+    ssb2.base.gptr = ssb2.base.egptr;
+    ssb2.base.pptr += 10;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb2, 5, SEEKDIR_cur, OPENMODE_in|OPENMODE_out);
+    ok(ret == 15, "expected 15 got %d\n", ret);
+    ok(ssb2.base.gptr == ssb2.base.eback + 7, "wrong get pointer, expected %p got %p\n", ssb2.base.eback + 7, ssb2.base.gptr);
+    ok(ssb2.base.egptr == ssb2.base.eback + 12, "wrong get end, expected %p got %p\n", ssb2.base.eback + 12, ssb2.base.egptr);
+    ok(ssb2.base.pptr == ssb2.base.pbase + 15, "wrong put pointer, expected %p got %p\n", ssb2.base.pbase + 15, ssb2.base.pptr);
+    ssb2.base.pptr = ssb2.base.epptr;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb2, -1, SEEKDIR_cur, OPENMODE_in|OPENMODE_out);
+    ok(ret == 25, "expected 25 got %d\n", ret);
+    ok(ssb2.base.gptr == ssb2.base.eback + 6, "wrong get pointer, expected %p got %p\n", ssb2.base.eback + 6, ssb2.base.gptr);
+    ok(ssb2.base.pptr == ssb2.base.pbase + 25, "wrong put pointer, expected %p got %p\n", ssb2.base.pbase + 25, ssb2.base.pptr);
+    pbuffer = ssb2.base.pbase;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb2, 50, SEEKDIR_beg, OPENMODE_out);
+    ok(ret == 50, "expected 50 got %d\n", ret);
+    ok(ssb2.base.gptr == ssb2.base.eback + 6, "wrong get pointer, expected %p got %p\n", ssb2.base.eback + 6, ssb2.base.gptr);
+    ok(ssb2.base.pptr == pbuffer + 50, "wrong put pointer, expected %p got %p\n", pbuffer + 50, ssb2.base.pptr);
+    ok(ssb2.increase == 50, "expected 50 got %d\n", ssb2.increase);
+    ssb2.base.epptr = NULL;
+    ssb2.increase = 8;
+    ret = (int) call_func4(p_strstreambuf_seekoff, &ssb2, 0, SEEKDIR_end, OPENMODE_out);
+    ok(ret == 74, "expected 74 got %d\n", ret);
+    ok(ssb2.base.pptr == ssb2.base.epptr, "wrong put pointer, expected %p got %p\n", ssb2.base.epptr, ssb2.base.pptr);
+
+    call_func1(p_strstreambuf_dtor, &ssb1);
+    call_func1(p_strstreambuf_dtor, &ssb2);
+}
+
 struct ios_lock_arg
 {
     ios *ios_obj;
@@ -1659,6 +2090,7 @@ START_TEST(msvcirt)
 
     test_streambuf();
     test_filebuf();
+    test_strstreambuf();
     test_ios();
 
     FreeLibrary(msvcrt);

@@ -4646,17 +4646,20 @@ static void test_GetFileAttributesExW(void)
     WIN32_FILE_ATTRIBUTE_DATA info;
     BOOL ret;
 
+    SetLastError(0xdeadbeef);
     ret = GetFileAttributesExW(path1, GetFileExInfoStandard, &info);
     ok(!ret, "GetFileAttributesExW succeeded\n");
-    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %d\n", GetLastError());
+    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %u\n", GetLastError());
 
+    SetLastError(0xdeadbeef);
     ret = GetFileAttributesExW(path2, GetFileExInfoStandard, &info);
     ok(!ret, "GetFileAttributesExW succeeded\n");
-    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %d\n", GetLastError());
+    ok(GetLastError() == ERROR_INVALID_NAME, "Expected error ERROR_INVALID_NAME, got %u\n", GetLastError());
 
+    SetLastError(0xdeadbeef);
     ret = GetFileAttributesExW(path3, GetFileExInfoStandard, &info);
     ok(!ret, "GetFileAttributesExW succeeded\n");
-    ok(GetLastError() == ERROR_FILE_NOT_FOUND, "Expected error ERROR_FILE_NOT_FOUND, got %d\n", GetLastError());
+    ok(GetLastError() == ERROR_FILE_NOT_FOUND, "Expected error ERROR_FILE_NOT_FOUND, got %u\n", GetLastError());
 }
 
 START_TEST(file)

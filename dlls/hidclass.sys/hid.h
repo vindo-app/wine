@@ -33,6 +33,11 @@
 #define DEFAULT_POLL_INTERVAL 200
 #define MAX_POLL_INTERVAL_MSEC 10000
 
+typedef NTSTATUS (WINAPI *pAddDevice)(DRIVER_OBJECT *DriverObject, DEVICE_OBJECT *PhysicalDeviceObject);
+
+/* Ring buffer functions */
+struct ReportRingBuffer;
+
 typedef struct _BASE_DEVICE_EXTENSTION {
     HID_DEVICE_EXTENSION deviceExtension;
 
@@ -42,6 +47,7 @@ typedef struct _BASE_DEVICE_EXTENSTION {
     ULONG poll_interval;
     WCHAR *device_name;
     WCHAR *link_name;
+    struct ReportRingBuffer *ring_buffer;
     HANDLE halt_event;
     HANDLE thread;
 
@@ -50,6 +56,13 @@ typedef struct _BASE_DEVICE_EXTENSTION {
     /* Minidriver Specific stuff will end up here */
 } BASE_DEVICE_EXTENSION;
 
+UINT RingBuffer_AddPointer(struct ReportRingBuffer *buffer) DECLSPEC_HIDDEN;
+void RingBuffer_RemovePointer(struct ReportRingBuffer *ring, UINT index) DECLSPEC_HIDDEN;
+void RingBuffer_Read(struct ReportRingBuffer *buffer, UINT index, void *output, UINT *size) DECLSPEC_HIDDEN;
+UINT RingBuffer_GetBufferSize(struct ReportRingBuffer *buffer) DECLSPEC_HIDDEN;
+void RingBuffer_Destroy(struct ReportRingBuffer *buffer) DECLSPEC_HIDDEN;
+struct ReportRingBuffer* RingBuffer_Create(UINT buffer_size) DECLSPEC_HIDDEN;
+
 typedef struct _minidriver
 {
     struct list entry;
@@ -57,9 +70,26 @@ typedef struct _minidriver
     HID_MINIDRIVER_REGISTRATION minidriver;
 
     PDRIVER_UNLOAD DriverUnload;
+
+    pAddDevice AddDevice;
 } minidriver;
+
+NTSTATUS call_minidriver(ULONG code, DEVICE_OBJECT *device, void *in_buff, ULONG in_size, void *out_buff, ULONG out_size) DECLSPEC_HIDDEN;
+minidriver* find_minidriver(DRIVER_OBJECT* driver) DECLSPEC_HIDDEN;
 
 /* Internal device functions */
 NTSTATUS HID_CreateDevice(DEVICE_OBJECT *native_device, HID_MINIDRIVER_REGISTRATION *driver, DEVICE_OBJECT **device) DECLSPEC_HIDDEN;
 NTSTATUS HID_LinkDevice(DEVICE_OBJECT *device, LPCWSTR serial, LPCWSTR index) DECLSPEC_HIDDEN;
 void HID_DeleteDevice(HID_MINIDRIVER_REGISTRATION *driver, DEVICE_OBJECT *device) DECLSPEC_HIDDEN;
+
+NTSTATUS WINAPI HID_Device_ioctl(DEVICE_OBJECT *device, IRP *irp) DECLSPEC_HIDDEN;
+NTSTATUS WINAPI HID_Device_read(DEVICE_OBJECT *device, IRP *irp) DECLSPEC_HIDDEN;
+NTSTATUS WINAPI HID_Device_create(DEVICE_OBJECT *device, IRP *irp) DECLSPEC_HIDDEN;
+NTSTATUS WINAPI HID_Device_close(DEVICE_OBJECT *device, IRP *irp) DECLSPEC_HIDDEN;
+
+/* Pseudo-Plug and Play support*/
+NTSTATUS WINAPI PNP_AddDevice(DRIVER_OBJECT *driver, DEVICE_OBJECT* PDO) DECLSPEC_HIDDEN;
+void PNP_CleanupPNP(DRIVER_OBJECT *driver) DECLSPEC_HIDDEN;
+
+/* Parsing HID Report Descriptors into preparsed data */
+WINE_HIDP_PREPARSED_DATA* ParseDescriptor(BYTE *descriptor, unsigned int length) DECLSPEC_HIDDEN;

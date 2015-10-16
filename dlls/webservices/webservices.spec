@@ -24,12 +24,12 @@
 @ stub WsCreateChannelForListener
 @ stdcall WsCreateError(ptr long ptr)
 @ stub WsCreateFaultFromError
-@ stub WsCreateHeap
+@ stdcall WsCreateHeap(long long ptr long ptr ptr)
 @ stub WsCreateListener
 @ stub WsCreateMessage
 @ stub WsCreateMessageForChannel
 @ stub WsCreateMetadata
-@ stub WsCreateReader
+@ stdcall WsCreateReader(ptr long ptr ptr)
 @ stub WsCreateServiceEndpointFromTemplate
 @ stub WsCreateServiceHost
 @ stub WsCreateServiceProxy
@@ -44,17 +44,17 @@
 @ stub WsEndWriterCanonicalization
 @ stub WsFileTimeToDateTime
 @ stub WsFillBody
-@ stub WsFillReader
+@ stdcall WsFillReader(ptr long ptr ptr)
 @ stub WsFindAttribute
 @ stub WsFlushBody
 @ stub WsFlushWriter
 @ stub WsFreeChannel
-@ stub WsFreeError
-@ stub WsFreeHeap
+@ stdcall WsFreeError(ptr)
+@ stdcall WsFreeHeap(ptr)
 @ stub WsFreeListener
 @ stub WsFreeMessage
 @ stub WsFreeMetadata
-@ stub WsFreeReader
+@ stdcall WsFreeReader(ptr)
 @ stub WsFreeSecurityToken
 @ stub WsFreeServiceHost
 @ stub WsFreeServiceProxy
@@ -62,13 +62,13 @@
 @ stub WsGetChannelProperty
 @ stub WsGetCustomHeader
 @ stub WsGetDictionary
-@ stub WsGetErrorProperty
+@ stdcall WsGetErrorProperty(ptr long ptr long)
 @ stub WsGetErrorString
 @ stub WsGetFaultErrorDetail
 @ stub WsGetFaultErrorProperty
 @ stub WsGetHeader
 @ stub WsGetHeaderAttributes
-@ stub WsGetHeapProperty
+@ stdcall WsGetHeapProperty(ptr long ptr long ptr)
 @ stub WsGetListenerProperty
 @ stub WsGetMappedHeader
 @ stub WsGetMessageProperty
@@ -80,9 +80,9 @@
 @ stub WsGetPolicyAlternativeCount
 @ stub WsGetPolicyProperty
 @ stub WsGetPrefixFromNamespace
-@ stub WsGetReaderNode
+@ stdcall WsGetReaderNode(ptr ptr ptr)
 @ stub WsGetReaderPosition
-@ stub WsGetReaderProperty
+@ stdcall WsGetReaderProperty(ptr long ptr long ptr)
 @ stub WsGetSecurityContextProperty
 @ stub WsGetSecurityTokenProperty
 @ stub WsGetServiceHostProperty
@@ -146,11 +146,11 @@
 @ stub WsSendMessage
 @ stub WsSendReplyMessage
 @ stub WsSetChannelProperty
-@ stub WsSetErrorProperty
+@ stdcall WsSetErrorProperty(ptr long ptr long)
 @ stub WsSetFaultErrorDetail
 @ stub WsSetFaultErrorProperty
 @ stub WsSetHeader
-@ stub WsSetInput
+@ stdcall WsSetInput(ptr ptr ptr ptr long ptr)
 @ stub WsSetInputToBuffer
 @ stub WsSetListenerProperty
 @ stub WsSetMessageProperty

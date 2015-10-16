@@ -191,13 +191,14 @@ static void present_parameters_from_wined3d_swapchain_desc(D3DPRESENT_PARAMETERS
 static BOOL wined3d_swapchain_desc_from_present_parameters(struct wined3d_swapchain_desc *swapchain_desc,
         const D3DPRESENT_PARAMETERS *present_parameters)
 {
-    if (!present_parameters->SwapEffect || present_parameters->SwapEffect > D3DSWAPEFFECT_COPY)
+    if (!present_parameters->SwapEffect || present_parameters->SwapEffect > D3DSWAPEFFECT_COPY_VSYNC)
     {
         WARN("Invalid swap effect %u passed.\n", present_parameters->SwapEffect);
         return FALSE;
     }
     if (present_parameters->BackBufferCount > 3
-            || (present_parameters->SwapEffect == D3DSWAPEFFECT_COPY
+            || ((present_parameters->SwapEffect == D3DSWAPEFFECT_COPY
+            || present_parameters->SwapEffect == D3DSWAPEFFECT_COPY_VSYNC)
             && present_parameters->BackBufferCount > 1))
     {
         WARN("Invalid backbuffer count %u.\n", present_parameters->BackBufferCount);
@@ -732,6 +733,8 @@ static HRESULT WINAPI d3d8_device_GetBackBuffer(IDirect3DDevice8 *iface,
     TRACE("iface %p, backbuffer_idx %u, backbuffer_type %#x, backbuffer %p.\n",
             iface, backbuffer_idx, backbuffer_type, backbuffer);
 
+    /* backbuffer_type is ignored by native. */
+
     /* No need to check for backbuffer == NULL, Windows crashes in that case. */
     wined3d_mutex_lock();
     if (!(swapchain = wined3d_device_get_swapchain(device->wined3d_device, 0)))
@@ -741,8 +744,7 @@ static HRESULT WINAPI d3d8_device_GetBackBuffer(IDirect3DDevice8 *iface,
         return D3DERR_INVALIDCALL;
     }
 
-    if (!(wined3d_texture = wined3d_swapchain_get_back_buffer(swapchain,
-            backbuffer_idx, (enum wined3d_backbuffer_type)backbuffer_type)))
+    if (!(wined3d_texture = wined3d_swapchain_get_back_buffer(swapchain, backbuffer_idx)))
     {
         wined3d_mutex_unlock();
         *backbuffer = NULL;

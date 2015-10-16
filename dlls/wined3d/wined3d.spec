@@ -226,8 +226,6 @@
 @ cdecl wined3d_surface_blt(ptr ptr ptr ptr long ptr long)
 @ cdecl wined3d_surface_decref(ptr)
 @ cdecl wined3d_surface_from_resource(ptr)
-@ cdecl wined3d_surface_get_blt_status(ptr long)
-@ cdecl wined3d_surface_get_flip_status(ptr long)
 @ cdecl wined3d_surface_get_overlay_position(ptr ptr ptr)
 @ cdecl wined3d_surface_get_parent(ptr)
 @ cdecl wined3d_surface_get_pitch(ptr)
@@ -285,13 +283,9 @@
 @ cdecl wined3d_vertex_declaration_get_parent(ptr)
 @ cdecl wined3d_vertex_declaration_incref(ptr)
 
-@ cdecl wined3d_volume_decref(ptr)
 @ cdecl wined3d_volume_from_resource(ptr)
-@ cdecl wined3d_volume_get_parent(ptr)
 @ cdecl wined3d_volume_get_resource(ptr)
-@ cdecl wined3d_volume_incref(ptr)
 @ cdecl wined3d_volume_map(ptr ptr ptr long)
-@ cdecl wined3d_volume_preload(ptr)
 @ cdecl wined3d_volume_unmap(ptr)
 
 @ cdecl wined3d_dxtn_supported()

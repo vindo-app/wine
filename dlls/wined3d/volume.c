@@ -590,7 +590,7 @@ static void volume_unload(struct wined3d_resource *resource)
     resource_unload(resource);
 }
 
-ULONG CDECL wined3d_volume_incref(struct wined3d_volume *volume)
+static ULONG CDECL wined3d_volume_incref(struct wined3d_volume *volume)
 {
     TRACE("Forwarding to container %p.\n", volume->container);
 
@@ -604,23 +604,11 @@ void wined3d_volume_cleanup_cs(struct wined3d_volume *volume)
 }
 
 #endif /* STAGING_CSMT */
-ULONG CDECL wined3d_volume_decref(struct wined3d_volume *volume)
+static ULONG CDECL wined3d_volume_decref(struct wined3d_volume *volume)
 {
     TRACE("Forwarding to container %p.\n", volume->container);
 
     return wined3d_texture_decref(volume->container);
-}
-
-void * CDECL wined3d_volume_get_parent(const struct wined3d_volume *volume)
-{
-    TRACE("volume %p.\n", volume);
-
-    return volume->resource.parent;
-}
-
-void CDECL wined3d_volume_preload(struct wined3d_volume *volume)
-{
-    FIXME("volume %p stub!\n", volume);
 }
 
 struct wined3d_resource * CDECL wined3d_volume_get_resource(struct wined3d_volume *volume)

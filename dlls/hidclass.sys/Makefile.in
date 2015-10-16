@@ -4,5 +4,8 @@ IMPORTS   = ntoskrnl.exe
 DELAYIMPORTS = setupapi hid
 
 C_SRCS = \
+	buffer.c \
+	descriptor.c \
 	device.c \
-	main.c
+	main.c \
+	pnp.c

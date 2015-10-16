@@ -146,7 +146,9 @@ PUBLIC_IDL_H_SRCS = \
 	wpcapi.idl \
 	wtypes.idl \
 	wuapi.idl \
+	xapo.idl \
 	xaudio2.idl \
+	xaudio2fx.idl \
 	xmllite.idl
 
 IDL_TLB_SRCS = \
@@ -672,6 +674,7 @@ SRCDIR_INCLUDES = \
 	wsipx.h \
 	wsnwlink.h \
 	wtsapi32.h \
+	x3daudio.h \
 	xcmc.h \
 	xinput.h \
 	xmldom.h \

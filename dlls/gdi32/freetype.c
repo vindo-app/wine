@@ -299,6 +299,68 @@ typedef struct {
 
 typedef struct tagGdiFont GdiFont;
 
+#define FIRST_FONT_HANDLE 1
+#define MAX_FONT_HANDLES  256
+
+struct font_handle_entry
+{
+    void *obj;
+    WORD  generation; /* generation count for reusing handle values */
+};
+
+static struct font_handle_entry font_handles[MAX_FONT_HANDLES];
+static struct font_handle_entry *next_free;
+static struct font_handle_entry *next_unused = font_handles;
+
+static inline DWORD entry_to_handle( struct font_handle_entry *entry )
+{
+    unsigned int idx = entry - font_handles + FIRST_FONT_HANDLE;
+    return idx | (entry->generation << 16);
+}
+
+static inline struct font_handle_entry *handle_entry( DWORD handle )
+{
+    unsigned int idx = LOWORD(handle) - FIRST_FONT_HANDLE;
+
+    if (idx < MAX_FONT_HANDLES)
+    {
+        if (!HIWORD( handle ) || HIWORD( handle ) == font_handles[idx].generation)
+            return &font_handles[idx];
+    }
+    if (handle) WARN( "invalid handle 0x%08x\n", handle );
+    return NULL;
+}
+
+static DWORD alloc_font_handle( void *obj )
+{
+    struct font_handle_entry *entry;
+
+    entry = next_free;
+    if (entry)
+        next_free = entry->obj;
+    else if (next_unused < font_handles + MAX_FONT_HANDLES)
+        entry = next_unused++;
+    else
+    {
+        ERR( "out of realized font handles\n" );
+        return 0;
+    }
+    entry->obj = obj;
+    if (++entry->generation == 0xffff) entry->generation = 1;
+    return entry_to_handle( entry );
+}
+
+static void free_font_handle( DWORD handle )
+{
+    struct font_handle_entry *entry;
+
+    if ((entry = handle_entry( handle )))
+    {
+        entry->obj = next_free;
+        next_free = entry;
+    }
+}
+
 typedef struct {
     struct list entry;
     Face *face;
@@ -340,6 +402,7 @@ struct tagGdiFont {
     VOID *GSUB_Table;
     const VOID *vert_feature;
     DWORD cache_num;
+    DWORD instance_id;
 };
 
 typedef struct {
@@ -506,6 +569,7 @@ static struct list mappings_list = LIST_INIT( mappings_list );
 
 static UINT default_aa_flags;
 static HKEY hkey_font_cache;
+static BOOL antialias_fakes = TRUE;
 
 static CRITICAL_SECTION freetype_cs;
 static CRITICAL_SECTION_DEBUG critsect_debug =
@@ -4145,6 +4209,7 @@ static void reorder_font_list(void)
 
 static DWORD WINAPI freetype_lazy_init(RTL_RUN_ONCE *once, void *param, void **context)
 {
+    HKEY hkey;
     DWORD disposition;
     HANDLE font_mutex;
 
@@ -4153,6 +4218,23 @@ static DWORD WINAPI freetype_lazy_init(RTL_RUN_ONCE *once, void *param, void **c
 #ifdef SONAME_LIBFONTCONFIG
     init_fontconfig();
 #endif
+
+    if (!RegOpenKeyExW(HKEY_CURRENT_USER, wine_fonts_key, 0, KEY_READ, &hkey))
+    {
+        static const WCHAR antialias_fake_bold_or_italic[] = { 'A','n','t','i','a','l','i','a','s','F','a','k','e',
+                                                               'B','o','l','d','O','r','I','t','a','l','i','c',0 };
+        static const WCHAR true_options[] = { 'y','Y','t','T','1',0 };
+        DWORD type, size;
+        WCHAR buffer[20];
+
+        size = sizeof(buffer);
+        if (!RegQueryValueExW(hkey, antialias_fake_bold_or_italic, NULL, &type, (BYTE*)buffer, &size) &&
+            type == REG_SZ && size >= 1)
+        {
+            antialias_fakes = (strchrW(true_options, buffer[0]) != NULL);
+        }
+        RegCloseKey(hkey);
+    }
 
     if((font_mutex = CreateMutexW(NULL, FALSE, font_mutex_nameW)) == NULL)
     {
@@ -4199,6 +4281,14 @@ BOOL WineEngInit(void)
     return TRUE;
 }
 
+/* Some fonts have large usWinDescent values, as a result of storing signed short
+   in unsigned field. That's probably caused by sTypoDescent vs usWinDescent confusion in
+   some font generation tools. */
+static inline USHORT get_fixed_windescent(USHORT windescent)
+{
+    return abs((SHORT)windescent);
+}
+
 static LONG calc_ppem_for_height(FT_Face ft_face, LONG height)
 {
     TT_OS2 *pOS2;
@@ -4227,12 +4317,13 @@ static LONG calc_ppem_for_height(FT_Face ft_face, LONG height)
      */
 
     if(height > 0) {
-        if(pOS2->usWinAscent + pOS2->usWinDescent == 0)
+        USHORT windescent = get_fixed_windescent(pOS2->usWinDescent);
+        if(pOS2->usWinAscent + windescent == 0)
             ppem = MulDiv(ft_face->units_per_EM, height,
                           pHori->Ascender - pHori->Descender);
         else
             ppem = MulDiv(ft_face->units_per_EM, height,
-                          pOS2->usWinAscent + pOS2->usWinDescent);
+                          pOS2->usWinAscent + windescent);
         if(ppem > MAX_PPEM) {
             WARN("Ignoring too large height %d, ppem %d\n", height, ppem);
             ppem = 1;
@@ -4409,6 +4500,7 @@ static GdiFont *alloc_font(void)
     ret->font_desc.matrix.eM11 = ret->font_desc.matrix.eM22 = 1.0;
     ret->total_kern_pairs = (DWORD)-1;
     ret->kern_pairs = NULL;
+    ret->instance_id = alloc_font_handle(ret);
     list_init(&ret->child_fonts);
     return ret;
 }
@@ -4427,6 +4519,7 @@ static void free_font(GdiFont *font)
         HeapFree(GetProcessHeap(), 0, child);
     }
 
+    free_font_handle(font->instance_id);
     if (font->ft_face) pFT_Done_Face(font->ft_face);
     if (font->mapping) unmap_font_file( font->mapping );
     HeapFree(GetProcessHeap(), 0, font->kern_pairs);
@@ -5543,7 +5636,7 @@ done:
             case GGO_GRAY4_BITMAP:
             case GGO_GRAY8_BITMAP:
             case WINE_GGO_GRAY16_BITMAP:
-                if (is_hinting_enabled())
+                if ((!antialias_fakes || (!ret->fake_bold && !ret->fake_italic)) && is_hinting_enabled())
                 {
                     WORD gasp_flags;
                     if (get_gasp_flags( ret, &gasp_flags ) && !(gasp_flags & GASP_DOGRAY))
@@ -7357,6 +7450,7 @@ static BOOL get_outline_text_metrics(GdiFont *font)
     WCHAR *family_nameW, *style_nameW, *face_nameW, *full_nameW;
     char *cp;
     INT ascent, descent;
+    USHORT windescent;
 
     TRACE("font=%p\n", font);
 
@@ -7425,7 +7519,7 @@ static BOOL get_outline_text_metrics(GdiFont *font)
 
     pPost = pFT_Get_Sfnt_Table(ft_face, ft_sfnt_post); /* we can live with this failing */
 
-    TRACE("OS/2 winA = %d winD = %d typoA = %d typoD = %d typoLG = %d avgW %d FT_Face a = %d, d = %d, h = %d: HORZ a = %d, d = %d lg = %d maxY = %ld minY = %ld\n",
+    TRACE("OS/2 winA = %u winD = %u typoA = %d typoD = %d typoLG = %d avgW %d FT_Face a = %d, d = %d, h = %d: HORZ a = %d, d = %d lg = %d maxY = %ld minY = %ld\n",
 	  pOS2->usWinAscent, pOS2->usWinDescent,
 	  pOS2->sTypoAscender, pOS2->sTypoDescender, pOS2->sTypoLineGap,
 	  pOS2->xAvgCharWidth,
@@ -7438,12 +7532,13 @@ static BOOL get_outline_text_metrics(GdiFont *font)
 
 #define TM font->potm->otmTextMetrics
 
-    if(pOS2->usWinAscent + pOS2->usWinDescent == 0) {
+    windescent = get_fixed_windescent(pOS2->usWinDescent);
+    if(pOS2->usWinAscent + windescent == 0) {
         ascent = pHori->Ascender;
         descent = -pHori->Descender;
     } else {
         ascent = pOS2->usWinAscent;
-        descent = pOS2->usWinDescent;
+        descent = windescent;
     }
 
     font->ntmCellHeight = ascent + descent;
@@ -8169,7 +8264,7 @@ static BOOL freetype_GetFontRealizationInfo( PHYSDEV dev, void *ptr )
         info->flags |= 2;
 
     info->cache_num = physdev->font->cache_num;
-    info->instance_id = -1;
+    info->instance_id = physdev->font->instance_id;
     if (info->size == sizeof(*info))
     {
         info->unk = 0;

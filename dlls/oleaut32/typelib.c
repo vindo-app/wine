@@ -7078,7 +7078,7 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                             }
                             V_VT(&rgvarg[i]) = rgvt[i];
                         }
-                        else if (rgvt[i] == (VT_VARIANT | VT_ARRAY) && func_desc->cParamsOpt < 0 && i == func_desc->cParams-1)
+                        else if ((rgvt[i] == (VT_VARIANT | VT_ARRAY) || rgvt[i] == (VT_VARIANT | VT_ARRAY | VT_BYREF)) && func_desc->cParamsOpt < 0)
                         {
                             SAFEARRAY *a;
                             SAFEARRAYBOUND bound;
@@ -7107,7 +7107,10 @@ static HRESULT WINAPI ITypeInfo_fnInvoke(
                                 SafeArrayDestroy(a);
                                 break;
                             }
-                            V_ARRAY(&rgvarg[i]) = a;
+                            if (rgvt[i] & VT_BYREF)
+                                V_BYREF(&rgvarg[i]) = &a;
+                            else
+                                V_ARRAY(&rgvarg[i]) = a;
                             V_VT(&rgvarg[i]) = rgvt[i];
                         }
                         else if ((rgvt[i] & VT_BYREF) && !V_ISBYREF(src_arg))
@@ -7882,19 +7885,19 @@ static HRESULT WINAPI ITypeInfo_fnGetContainingTypeLib( ITypeInfo2 *iface,
         ITypeLib  * *ppTLib, UINT  *pIndex)
 {
     ITypeInfoImpl *This = impl_from_ITypeInfo2(iface);
-    
+
     /* If a pointer is null, we simply ignore it, the ATL in particular passes pIndex as 0 */
     if (pIndex) {
       *pIndex=This->index;
       TRACE("returning pIndex=%d\n", *pIndex);
     }
-    
+
     if (ppTLib) {
-      *ppTLib=(LPTYPELIB )(This->pTypeLib);
+      *ppTLib = (ITypeLib *)&This->pTypeLib->ITypeLib2_iface;
       ITypeLib_AddRef(*ppTLib);
       TRACE("returning ppTLib=%p\n", *ppTLib);
     }
-    
+
     return S_OK;
 }
 

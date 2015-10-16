@@ -753,6 +753,7 @@ static BOOL is_CJK(void)
 #define FH_SCALE 0x80000000
 static void test_bitmap_font_metrics(void)
 {
+    static const WORD skip_rtl[] = {LANG_ARABIC, LANG_HEBREW, 0};
     static const struct font_data
     {
         const char face_name[LF_FACESIZE];
@@ -760,19 +761,19 @@ static void test_bitmap_font_metrics(void)
         int ave_char_width, max_char_width, dpi;
         BYTE first_char, last_char, def_char, break_char;
         DWORD ansi_bitfield;
-        WORD skip_lang_id;
+        const WORD *skip_lang_id;
         int scaled_height;
     } fd[] =
     {
-        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 6, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, LANG_ARABIC, 13 },
+        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 6, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, skip_rtl, 13 },
         { "MS Sans Serif", FW_NORMAL, FH_SCALE | 6, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x7f, 0x20, FS_CYRILLIC, 0, 13 },
-        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 8, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, LANG_ARABIC, 13 },
+        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 8, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, skip_rtl, 13 },
         { "MS Sans Serif", FW_NORMAL, FH_SCALE | 8, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x7f, 0x20, FS_CYRILLIC, 0, 13 },
-        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 10, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, LANG_ARABIC, 13 },
+        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 10, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, skip_rtl, 13 },
         { "MS Sans Serif", FW_NORMAL, FH_SCALE | 10, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x7f, 0x20, FS_CYRILLIC, 0, 13 },
-        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 14, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, LANG_ARABIC, 13 },
+        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 14, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, skip_rtl, 13 },
         { "MS Sans Serif", FW_NORMAL, FH_SCALE | 14, 11, 2, 2, 0, 5, 11, 96, 0x20, 0xff, 0x7f, 0x20, FS_CYRILLIC, 0, 13 },
-        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 18, 13, 3, 3, 0, 7, 14, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, LANG_ARABIC, 16 },
+        { "MS Sans Serif", FW_NORMAL, FH_SCALE | 18, 13, 3, 3, 0, 7, 14, 96, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, skip_rtl, 16 },
         { "MS Sans Serif", FW_NORMAL, FH_SCALE | 18, 13, 3, 3, 0, 7, 14, 96, 0x20, 0xff, 0x7f, 0x20, FS_CYRILLIC, 0, 16 },
 
         { "MS Sans Serif", FW_NORMAL, FH_SCALE | 6, 13, 3, 3, 0, 7, 14, 120, 0x20, 0xff, 0x81, 0x20, FS_LATIN1 | FS_LATIN2, 0, 16 },
@@ -864,22 +865,22 @@ static void test_bitmap_font_metrics(void)
         { "Small Fonts", FW_NORMAL, 3, 2, 1, 0, 0, 1, 2, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1 },
         { "Small Fonts", FW_NORMAL, 3, 2, 1, 0, 0, 1, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN2 | FS_CYRILLIC },
         { "Small Fonts", FW_NORMAL, 3, 2, 1, 0, 0, 2, 4, 96, 0x20, 0xff, 0x80, 0x20, FS_JISJAPAN },
-        { "Small Fonts", FW_NORMAL, 5, 4, 1, 1, 0, 3, 4, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1, LANG_ARABIC },
+        { "Small Fonts", FW_NORMAL, 5, 4, 1, 1, 0, 3, 4, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1, skip_rtl},
         { "Small Fonts", FW_NORMAL, 5, 4, 1, 1, 0, 2, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN2 | FS_CYRILLIC },
         { "Small Fonts", FW_NORMAL, 5, 4, 1, 0, 0, 3, 6, 96, 0x20, 0xff, 0x80, 0x20, FS_JISJAPAN },
-        { "Small Fonts", FW_NORMAL, 6, 5, 1, 1, 0, 3, 13, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1, LANG_ARABIC },
+        { "Small Fonts", FW_NORMAL, 6, 5, 1, 1, 0, 3, 13, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1, skip_rtl},
         { "Small Fonts", FW_NORMAL, 6, 5, 1, 1, 0, 3, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN2 | FS_CYRILLIC },
         { "Small Fonts", FW_NORMAL, 6, 5, 1, 1, 0, 3, 8, 96, 0x00, 0xff, 0x60, 0x00, FS_ARABIC },
         { "Small Fonts", FW_NORMAL, 6, 5, 1, 0, 0, 4, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_JISJAPAN },
-        { "Small Fonts", FW_NORMAL, 8, 7, 1, 1, 0, 4, 7, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1, LANG_ARABIC },
+        { "Small Fonts", FW_NORMAL, 8, 7, 1, 1, 0, 4, 7, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1, skip_rtl},
         { "Small Fonts", FW_NORMAL, 8, 7, 1, 1, 0, 4, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN2 | FS_CYRILLIC },
         { "Small Fonts", FW_NORMAL, 8, 7, 1, 1, 0, 4, 8, 96, 0x00, 0xff, 0x60, 0x00, FS_ARABIC },
         { "Small Fonts", FW_NORMAL, 8, 7, 1, 0, 0, 5, 10, 96, 0x20, 0xff, 0x80, 0x20, FS_JISJAPAN },
-        { "Small Fonts", FW_NORMAL, 10, 8, 2, 2, 0, 4, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1 | FS_LATIN2, LANG_ARABIC },
+        { "Small Fonts", FW_NORMAL, 10, 8, 2, 2, 0, 4, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1 | FS_LATIN2, skip_rtl},
         { "Small Fonts", FW_NORMAL, 10, 8, 2, 2, 0, 5, 8, 96, 0x20, 0xff, 0x80, 0x20, FS_CYRILLIC },
         { "Small Fonts", FW_NORMAL, 10, 8, 2, 2, 0, 4, 9, 96, 0x00, 0xff, 0x60, 0x00, FS_ARABIC },
         { "Small Fonts", FW_NORMAL, 10, 8, 2, 0, 0, 6, 12, 96, 0x20, 0xff, 0x80, 0x20, FS_JISJAPAN },
-        { "Small Fonts", FW_NORMAL, 11, 9, 2, 2, 0, 5, 9, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1 | FS_LATIN2 | FS_CYRILLIC, LANG_ARABIC },
+        { "Small Fonts", FW_NORMAL, 11, 9, 2, 2, 0, 5, 9, 96, 0x20, 0xff, 0x80, 0x20, FS_LATIN1 | FS_LATIN2 | FS_CYRILLIC, skip_rtl},
         { "Small Fonts", FW_NORMAL, 11, 9, 2, 2, 0, 4, 10, 96, 0x00, 0xff, 0x60, 0x00, FS_ARABIC },
         { "Small Fonts", FW_NORMAL, 11, 9, 2, 0, 0, 7, 14, 96, 0x20, 0xff, 0x80, 0x20, FS_JISJAPAN },
 
@@ -1021,8 +1022,17 @@ static void test_bitmap_font_metrics(void)
 
             if(fd[i].dpi == tm.tmDigitizedAspectX)
             {
+                int skipme = 0;
                 trace("matched %s, height %d charset %x dpi %d\n", lf.lfFaceName, lf.lfHeight, lf.lfCharSet, fd[i].dpi);
-                if (fd[i].skip_lang_id == 0 || system_lang_id != fd[i].skip_lang_id)
+                if (fd[i].skip_lang_id)
+                {
+                    int si = 0;
+                    skipme = 0;
+                    while(!skipme && fd[i].skip_lang_id[si])
+                        if (fd[i].skip_lang_id[si++] == system_lang_id)
+                            skipme = 1;
+                }
+                if (!skipme)
                 {
                     ok(tm.tmWeight == fd[i].weight, "%s(%d): tm.tmWeight %d != %d\n", fd[i].face_name, height, tm.tmWeight, fd[i].weight);
                     if (fd[i].height & FH_SCALE)
@@ -2391,12 +2401,12 @@ static BOOL get_glyph_indices(INT charset, UINT code_page, WORD *idx, UINT count
     if (charset == SYMBOL_CHARSET)
     {
         ok(strcmp("Arial", name), "face name should NOT be Arial\n");
-        ok(fs.fsCsb[0] & (1 << 31), "symbol encoding should be available\n");
+        ok(fs.fsCsb[0] & (1u << 31), "symbol encoding should be available\n");
     }
     else
     {
         ok(!strcmp("Arial", name), "face name should be Arial, not %s\n", name);
-        ok(!(fs.fsCsb[0] & (1 << 31)), "symbol encoding should NOT be available\n");
+        ok(!(fs.fsCsb[0] & (1u << 31)), "symbol encoding should NOT be available\n");
     }
 
     if (!TranslateCharsetInfo((DWORD *)(INT_PTR)cs, &csi, TCI_SRCCHARSET))
@@ -3188,8 +3198,13 @@ typedef struct
     USHORT usDefaultChar;
     USHORT usBreakChar;
     USHORT usMaxContext;
-} TT_OS2_V2;
+    /* version 4 (OpenType 1.6) */
+    USHORT usLowerOpticalPointSize;
+    USHORT usUpperOpticalPointSize;
+} TT_OS2_V4;
 #include "poppack.h"
+
+#define TT_OS2_V0_SIZE (FIELD_OFFSET(TT_OS2_V4, ulCodePageRange1))
 
 typedef struct
 {
@@ -3242,7 +3257,7 @@ typedef struct
     USHORT id_range_offset;
 } cmap_format_4_seg;
 
-static void expect_ff(const TEXTMETRICA *tmA, const TT_OS2_V2 *os2, WORD family, const char *name)
+static void expect_ff(const TEXTMETRICA *tmA, const TT_OS2_V4 *os2, WORD family, const char *name)
 {
     ok((tmA->tmPitchAndFamily & 0xf0) == family ||
        broken(PRIMARYLANGID(GetSystemDefaultLangID()) != LANG_ENGLISH),
@@ -3662,7 +3677,7 @@ static void test_text_metrics(const LOGFONTA *lf, const NEWTEXTMETRICA *ntm)
     HDC hdc;
     HFONT hfont, hfont_old;
     TEXTMETRICA tmA;
-    TT_OS2_V2 tt_os2;
+    TT_OS2_V4 tt_os2;
     LONG size, ret;
     const char *font_name = lf->lfFaceName;
     DWORD cmap_first = 0, cmap_last = 0;
@@ -3693,7 +3708,8 @@ static void test_text_metrics(const LOGFONTA *lf, const NEWTEXTMETRICA *ntm)
 
     memset(&tt_os2, 0, sizeof(tt_os2));
     ret = GetFontData(hdc, MS_OS2_TAG, 0, &tt_os2, size);
-    ok(ret == size, "GetFontData should return %u not %u\n", size, ret);
+    ok(ret >= TT_OS2_V0_SIZE && ret <= size, "GetFontData should return size from [%u,%u] not %u\n", TT_OS2_V0_SIZE,
+        size, ret);
 
     SetLastError(0xdeadbeef);
     ret = GetTextMetricsA(hdc, &tmA);
@@ -3712,7 +3728,7 @@ static void test_text_metrics(const LOGFONTA *lf, const NEWTEXTMETRICA *ntm)
         TEXTMETRICW tmW;
 
         ascent = GET_BE_WORD(tt_os2.usWinAscent);
-        descent = GET_BE_WORD(tt_os2.usWinDescent);
+        descent = abs((SHORT)GET_BE_WORD(tt_os2.usWinDescent));
         cell_height = ascent + descent;
         ok(ntm->ntmCellHeight == cell_height, "%s: ntmCellHeight %u != %u, os2.usWinAscent/os2.usWinDescent %u/%u\n",
            font_name, ntm->ntmCellHeight, cell_height, ascent, descent);

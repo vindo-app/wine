@@ -5703,21 +5703,21 @@
 @ stub _Cosh
 @ extern _Denorm
 @ stub _Dnorm
-@ stub _Dscale
+@ cdecl _Dscale(ptr long)
 @ stub _Dtentox
-@ stub _Dtest
+@ cdecl _Dtest(ptr)
 @ stub _Dunscale
 @ extern _Eps
-@ stub _Exp
+@ cdecl _Exp(ptr double long)
 @ stub _FCosh
 @ extern _FDenorm
 @ stub _FDnorm
-@ stub _FDscale
+@ cdecl _FDscale(ptr long)
 @ stub _FDtentox
-@ stub _FDtest
+@ cdecl _FDtest(ptr)
 @ stub _FDunscale
 @ extern _FEps
-@ stub _FExp
+@ cdecl _FExp(ptr float long)
 @ extern _FInf
 @ extern _FNan
 # extern _FRteps
@@ -5734,9 +5734,9 @@
 @ extern _Inf
 @ stub _LCosh
 @ extern _LDenorm
-@ stub _LDscale
+@ cdecl _LDscale(ptr long) _Dscale
 @ stub _LDtentox
-@ stub _LDtest
+@ cdecl _LDtest(ptr) _Dtest
 @ stub _LDunscale
 @ extern _LEps
 @ stub _LExp

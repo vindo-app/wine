@@ -2700,10 +2700,6 @@ BOOL surface_check_block_align(struct wined3d_surface *surface, const RECT *rect
 void wined3d_surface_cleanup_cs(struct wined3d_surface *surface) DECLSPEC_HIDDEN;
 void wined3d_surface_getdc_cs(struct wined3d_surface *surface) DECLSPEC_HIDDEN;
 void wined3d_surface_releasedc_cs(struct wined3d_surface *surface) DECLSPEC_HIDDEN;
-
-void draw_textured_quad(const struct wined3d_surface *src_surface, struct wined3d_context *context,
-        const RECT *src_rect, const RECT *dst_rect, enum wined3d_texture_filter_type filter) DECLSPEC_HIDDEN;
-void surface_flip(struct wined3d_surface *front, struct wined3d_surface *back) DECLSPEC_HIDDEN;
 #else  /* STAGING_CSMT */
 void surface_validate_location(struct wined3d_surface *surface, DWORD location) DECLSPEC_HIDDEN;
 HRESULT wined3d_surface_create(struct wined3d_texture *container, const struct wined3d_resource_desc *desc,
@@ -2714,11 +2710,10 @@ void surface_prepare_map_memory(struct wined3d_surface *surface) DECLSPEC_HIDDEN
 void wined3d_surface_upload_data(struct wined3d_surface *surface, const struct wined3d_gl_info *gl_info,
         const struct wined3d_format *format, const RECT *src_rect, UINT src_pitch, const POINT *dst_point,
         BOOL srgb, const struct wined3d_const_bo_address *data) DECLSPEC_HIDDEN;
+#endif /* STAGING_CSMT */
 
 void draw_textured_quad(const struct wined3d_surface *src_surface, struct wined3d_context *context,
         const RECT *src_rect, const RECT *dst_rect, enum wined3d_texture_filter_type filter) DECLSPEC_HIDDEN;
-void flip_surface(struct wined3d_surface *front, struct wined3d_surface *back) DECLSPEC_HIDDEN;
-#endif /* STAGING_CSMT */
 
 /* Surface flags: */
 #define SFLAG_DIBSECTION        0x00000001 /* Has a DIB section attached for GetDC. */

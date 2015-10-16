@@ -2945,18 +2945,16 @@ static HRESULT WINAPI ddraw_surface1_EnumOverlayZOrders(IDirectDrawSurface *ifac
  *****************************************************************************/
 static HRESULT WINAPI ddraw_surface7_GetBltStatus(IDirectDrawSurface7 *iface, DWORD Flags)
 {
-    struct ddraw_surface *surface = impl_from_IDirectDrawSurface7(iface);
-    HRESULT hr;
-
     TRACE("iface %p, flags %#x.\n", iface, Flags);
 
-    wined3d_mutex_lock();
-    hr = wined3d_surface_get_blt_status(surface->wined3d_surface, Flags);
-    wined3d_mutex_unlock();
-    switch(hr)
+    switch (Flags)
     {
-        case WINED3DERR_INVALIDCALL:        return DDERR_INVALIDPARAMS;
-        default:                            return hr;
+        case WINEDDGBS_CANBLT:
+        case WINEDDGBS_ISBLTDONE:
+            return DD_OK;
+
+        default:
+            return DDERR_INVALIDPARAMS;
     }
 }
 
@@ -3119,19 +3117,18 @@ static HRESULT WINAPI ddraw_surface1_GetColorKey(IDirectDrawSurface *iface, DWOR
  *****************************************************************************/
 static HRESULT WINAPI ddraw_surface7_GetFlipStatus(IDirectDrawSurface7 *iface, DWORD Flags)
 {
-    struct ddraw_surface *surface = impl_from_IDirectDrawSurface7(iface);
-    HRESULT hr;
-
     TRACE("iface %p, flags %#x.\n", iface, Flags);
 
-    wined3d_mutex_lock();
-    hr = wined3d_surface_get_flip_status(surface->wined3d_surface, Flags);
-    wined3d_mutex_unlock();
+    /* XXX: DDERR_INVALIDSURFACETYPE */
 
-    switch(hr)
+    switch (Flags)
     {
-        case WINED3DERR_INVALIDCALL:        return DDERR_INVALIDPARAMS;
-        default:                            return hr;
+        case WINEDDGFS_CANFLIP:
+        case WINEDDGFS_ISFLIPDONE:
+            return DD_OK;
+
+        default:
+            return DDERR_INVALIDPARAMS;
     }
 }
 
@@ -5429,7 +5426,7 @@ static const struct IDirectDrawSurface2Vtbl ddraw_surface2_vtbl =
     ddraw_surface2_PageUnlock,
 };
 
-static const struct IDirectDrawSurfaceVtbl ddraw_surface1_vtbl =
+static struct IDirectDrawSurfaceVtbl ddraw_surface1_vtbl =
 {
     /* IUnknown */
     ddraw_surface1_QueryInterface,

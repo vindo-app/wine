@@ -5071,12 +5071,14 @@ HRESULT CDECL wined3d_device_reset(struct wined3d_device *device,
     HRESULT hr = WINED3D_OK;
     unsigned int i;
 
-    TRACE("device %p, swapchain_desc %p, mode %p, callback %p.\n", device, swapchain_desc, mode, callback);
+    TRACE("device %p, swapchain_desc %p, mode %p, callback %p, reset_state %#x.\n",
+            device, swapchain_desc, mode, callback, reset_state);
+
 #if defined(STAGING_CSMT)
     wined3d_cs_emit_glfinish(device->cs);
     device->cs->ops->finish(device->cs);
-#endif /* STAGING_CSMT */
 
+#endif /* STAGING_CSMT */
     if (!(swapchain = wined3d_device_get_swapchain(device, 0)))
     {
         ERR("Failed to get the first implicit swapchain.\n");

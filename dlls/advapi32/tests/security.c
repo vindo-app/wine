@@ -2249,7 +2249,7 @@ static void test_LookupAccountName(void)
     ok(ret, "Failed to lookup account name\n");
     ok(sid_size == GetLengthSid(psid), "Expected %d, got %d\n", GetLengthSid(psid), sid_size);
     ok(!lstrcmpA(account, user_name), "Expected %s, got %s\n", user_name, account);
-    ok(!lstrcmpA(domain, sid_dom), "Expected %s, got %s\n", sid_dom, domain);
+    ok(!lstrcmpiA(domain, sid_dom), "Expected %s, got %s\n", sid_dom, domain);
     ok(domain_size == domain_save - 1, "Expected %d, got %d\n", domain_save - 1, domain_size);
     ok(strlen(domain) == domain_size, "Expected %d, got %d\n", lstrlenA(domain), domain_size);
     ok(sid_use == SidTypeUser, "Expected SidTypeUser (%d), got %d\n", SidTypeUser, sid_use);
@@ -2267,7 +2267,7 @@ static void test_LookupAccountName(void)
         ok(ret, "Failed to lookup account name\n");
         ok(sid_size != 0, "sid_size was zero\n");
         ok(!lstrcmpA(account, "Everyone"), "Expected Everyone, got %s\n", account);
-        ok(!lstrcmpA(domain, sid_dom), "Expected %s, got %s\n", sid_dom, domain);
+        ok(!lstrcmpiA(domain, sid_dom), "Expected %s, got %s\n", sid_dom, domain);
         ok(domain_size == 0, "Expected 0, got %d\n", domain_size);
         ok(strlen(domain) == domain_size, "Expected %d, got %d\n", lstrlenA(domain), domain_size);
         ok(sid_use == SidTypeWellKnownGroup, "Expected SidTypeWellKnownGroup (%d), got %d\n", SidTypeWellKnownGroup, sid_use);
@@ -2332,9 +2332,8 @@ static void test_LookupAccountName(void)
         get_sid_info(psid, &account, &sid_dom);
         ok(ret, "Failed to lookup account name\n");
         /* Using a fixed string will not work on different locales */
-        ok(!lstrcmpA(account, domain),
-           "Got %s for account and %s for domain, these should be the same\n",
-           account, domain);
+        ok(!lstrcmpiA(account, domain),
+           "Got %s for account and %s for domain, these should be the same\n", account, domain);
         ok(sid_use == SidTypeDomain, "Expected SidTypeDomain (%d), got %d\n", SidTypeDomain, sid_use);
 
         HeapFree(GetProcessHeap(), 0, psid);
@@ -3982,7 +3981,8 @@ static void test_GetNamedSecurityInfoA(void)
         ok(bret, "Failed to get Builtin Admins ACE.\n");
         flags = ((ACE_HEADER *)ace)->AceFlags;
         ok(flags == 0x0
-           || broken(flags == (INHERIT_ONLY_ACE|CONTAINER_INHERIT_ACE|INHERITED_ACE)) /* w2k8 */,
+           || broken(flags == (INHERIT_ONLY_ACE|CONTAINER_INHERIT_ACE|INHERITED_ACE)) /* w2k8 */
+           || broken(flags == (OBJECT_INHERIT_ACE|CONTAINER_INHERIT_ACE)), /* win7 */
            "Builtin Admins ACE has unexpected flags (0x%x != 0x0)\n", flags);
         ok(ace->Mask == KEY_ALL_ACCESS || broken(ace->Mask == GENERIC_ALL) /* w2k8 */,
            "Builtin Admins ACE has unexpected mask (0x%x != 0x%x)\n", ace->Mask, KEY_ALL_ACCESS);
@@ -6162,6 +6162,12 @@ static void test_system_security_access(void)
 
     /* ACCESS_SYSTEM_SECURITY requires special privilege */
     res = RegCreateKeyExW( HKEY_LOCAL_MACHINE, testkeyW, 0, NULL, 0, KEY_READ|ACCESS_SYSTEM_SECURITY, NULL, &hkey, NULL );
+    if (res == ERROR_ACCESS_DENIED)
+    {
+        skip( "unprivileged user\n" );
+        CloseHandle( token );
+        return;
+    }
     todo_wine ok( res == ERROR_PRIVILEGE_NOT_HELD, "got %d\n", res );
 
     priv.PrivilegeCount = 1;
@@ -6173,6 +6179,13 @@ static void test_system_security_access(void)
     ok( ret, "got %u\n", GetLastError());
 
     res = RegCreateKeyExW( HKEY_LOCAL_MACHINE, testkeyW, 0, NULL, 0, KEY_READ|ACCESS_SYSTEM_SECURITY, NULL, &hkey, NULL );
+    if (res == ERROR_PRIVILEGE_NOT_HELD)
+    {
+        win_skip( "privilege not held\n" );
+        HeapFree( GetProcessHeap(), 0, priv_prev );
+        CloseHandle( token );
+        return;
+    }
     ok( !res, "got %d\n", res );
 
     /* restore privileges */

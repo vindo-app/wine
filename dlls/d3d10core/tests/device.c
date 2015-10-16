@@ -518,6 +518,135 @@ static void test_create_texture3d(void)
     ok(!refcount, "Device has %u references left.\n", refcount);
 }
 
+static void test_buffer_interfaces(void)
+{
+    ID3D11Buffer *d3d11_buffer;
+    D3D10_BUFFER_DESC desc;
+    ID3D10Buffer *buffer;
+    ID3D10Device *device;
+    unsigned int i;
+    ULONG refcount;
+    HRESULT hr;
+
+    static const struct test
+    {
+        UINT bind_flags;
+        UINT misc_flags;
+        UINT expected_bind_flags;
+        UINT expected_misc_flags;
+    }
+    desc_conversion_tests[] =
+    {
+        {
+            D3D10_BIND_VERTEX_BUFFER, 0,
+            D3D11_BIND_VERTEX_BUFFER, 0
+        },
+        {
+            D3D10_BIND_INDEX_BUFFER, 0,
+            D3D11_BIND_INDEX_BUFFER, 0
+        },
+        {
+            D3D10_BIND_CONSTANT_BUFFER, 0,
+            D3D11_BIND_CONSTANT_BUFFER, 0
+        },
+        {
+            D3D10_BIND_SHADER_RESOURCE, 0,
+            D3D11_BIND_SHADER_RESOURCE, 0
+        },
+        {
+            D3D10_BIND_STREAM_OUTPUT, 0,
+            D3D11_BIND_STREAM_OUTPUT, 0
+        },
+        {
+            D3D10_BIND_RENDER_TARGET, 0,
+            D3D11_BIND_RENDER_TARGET, 0
+        },
+        {
+            0, D3D10_RESOURCE_MISC_SHARED,
+            0, D3D11_RESOURCE_MISC_SHARED
+        },
+    };
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    desc.ByteWidth = 1024;
+    desc.Usage = D3D10_USAGE_DEFAULT;
+    desc.BindFlags = D3D10_BIND_VERTEX_BUFFER;
+    desc.CPUAccessFlags = 0;
+    desc.MiscFlags = 0;
+
+    hr = ID3D10Device_CreateBuffer(device, &desc, NULL, &buffer);
+    ok(SUCCEEDED(hr), "Failed to create a buffer, hr %#x.\n", hr);
+
+    hr = ID3D10Buffer_QueryInterface(buffer, &IID_ID3D11Buffer, (void **)&d3d11_buffer);
+    ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
+            "Buffer should implement ID3D11Buffer.\n");
+    if (SUCCEEDED(hr)) ID3D11Buffer_Release(d3d11_buffer);
+    ID3D10Buffer_Release(buffer);
+
+    if (FAILED(hr))
+    {
+        win_skip("D3D11 is not available.\n");
+        ID3D10Device_Release(device);
+        return;
+    }
+
+    for (i = 0; i < sizeof(desc_conversion_tests) / sizeof(*desc_conversion_tests); ++i)
+    {
+        const struct test *current = &desc_conversion_tests[i];
+        D3D11_BUFFER_DESC d3d11_desc;
+        ID3D11Device *d3d11_device;
+
+        desc.ByteWidth = 1024;
+        desc.Usage = D3D10_USAGE_DEFAULT;
+        desc.BindFlags = current->bind_flags;
+        desc.CPUAccessFlags = 0;
+        desc.MiscFlags = current->misc_flags;
+
+        hr = ID3D10Device_CreateBuffer(device, &desc, NULL, &buffer);
+        /* Shared resources are not supported by REF and WARP devices. */
+        ok(SUCCEEDED(hr) || broken(hr == E_OUTOFMEMORY), "Test %u: Failed to create a buffer, hr %#x.\n", i, hr);
+        if (FAILED(hr))
+        {
+            win_skip("Failed to create a buffer, skipping test %u.\n", i);
+            continue;
+        }
+
+        hr = ID3D10Buffer_QueryInterface(buffer, &IID_ID3D11Buffer, (void **)&d3d11_buffer);
+        ok(SUCCEEDED(hr), "Test %u: Buffer should implement ID3D11Buffer.\n", i);
+        ID3D10Buffer_Release(buffer);
+
+        ID3D11Buffer_GetDesc(d3d11_buffer, &d3d11_desc);
+
+        ok(d3d11_desc.ByteWidth == desc.ByteWidth,
+                "Test %u: Got unexpected ByteWidth %u.\n", i, d3d11_desc.ByteWidth);
+        ok(d3d11_desc.Usage == (D3D11_USAGE)desc.Usage,
+                "Test %u: Got unexpected Usage %u.\n", i, d3d11_desc.Usage);
+        ok(d3d11_desc.BindFlags == current->expected_bind_flags,
+                "Test %u: Got unexpected BindFlags %#x.\n", i, d3d11_desc.BindFlags);
+        ok(d3d11_desc.CPUAccessFlags == desc.CPUAccessFlags,
+                "Test %u: Got unexpected CPUAccessFlags %#x.\n", i, d3d11_desc.CPUAccessFlags);
+        ok(d3d11_desc.MiscFlags == current->expected_misc_flags,
+                "Test %u: Got unexpected MiscFlags %#x.\n", i, d3d11_desc.MiscFlags);
+        ok(d3d11_desc.StructureByteStride == 0,
+                "Test %u: Got unexpected StructureByteStride %u.\n", i, d3d11_desc.StructureByteStride);
+
+        d3d11_device = NULL;
+        ID3D11Buffer_GetDevice(d3d11_buffer, &d3d11_device);
+        ok(!!d3d11_device, "Test %u: Got NULL, expected device pointer.\n", i);
+        ID3D11Device_Release(d3d11_device);
+
+        ID3D11Buffer_Release(d3d11_buffer);
+    }
+
+    refcount = ID3D10Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
 static void test_create_depthstencil_view(void)
 {
     D3D10_DEPTH_STENCIL_VIEW_DESC dsv_desc;
@@ -575,6 +704,74 @@ static void test_create_depthstencil_view(void)
     ok(!refcount, "Device has %u references left.\n", refcount);
 }
 
+static void test_depthstencil_view_interfaces(void)
+{
+    D3D11_DEPTH_STENCIL_VIEW_DESC d3d11_dsv_desc;
+    D3D10_DEPTH_STENCIL_VIEW_DESC dsv_desc;
+    ID3D11DepthStencilView *d3d11_dsview;
+    D3D10_TEXTURE2D_DESC texture_desc;
+    ID3D10DepthStencilView *dsview;
+    ID3D10Texture2D *texture;
+    ID3D10Device *device;
+    ULONG refcount;
+    HRESULT hr;
+
+    if (!(device = create_device()))
+    {
+        skip("Failed to create device.\n");
+        return;
+    }
+
+    texture_desc.Width = 512;
+    texture_desc.Height = 512;
+    texture_desc.MipLevels = 1;
+    texture_desc.ArraySize = 1;
+    texture_desc.Format = DXGI_FORMAT_D24_UNORM_S8_UINT;
+    texture_desc.SampleDesc.Count = 1;
+    texture_desc.SampleDesc.Quality = 0;
+    texture_desc.Usage = D3D10_USAGE_DEFAULT;
+    texture_desc.BindFlags = D3D10_BIND_DEPTH_STENCIL;
+    texture_desc.CPUAccessFlags = 0;
+    texture_desc.MiscFlags = 0;
+
+    hr = ID3D10Device_CreateTexture2D(device, &texture_desc, NULL, &texture);
+    ok(SUCCEEDED(hr), "Failed to create a 2d texture, hr %#x.\n", hr);
+
+    dsv_desc.Format = texture_desc.Format;
+    dsv_desc.ViewDimension = D3D10_DSV_DIMENSION_TEXTURE2D;
+    U(dsv_desc).Texture2D.MipSlice = 0;
+
+    hr = ID3D10Device_CreateDepthStencilView(device, (ID3D10Resource *)texture, &dsv_desc, &dsview);
+    ok(SUCCEEDED(hr), "Failed to create a depthstencil view, hr %#x.\n", hr);
+
+    hr = ID3D10DepthStencilView_QueryInterface(dsview, &IID_ID3D11DepthStencilView, (void **)&d3d11_dsview);
+    ID3D10DepthStencilView_Release(dsview);
+    ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
+            "Depth stencil view should implement ID3D11DepthStencilView.\n");
+
+    if (SUCCEEDED(hr))
+    {
+        ID3D11DepthStencilView_GetDesc(d3d11_dsview, &d3d11_dsv_desc);
+        ok(d3d11_dsv_desc.Format == dsv_desc.Format, "Got unexpected format %#x.\n", d3d11_dsv_desc.Format);
+        ok(d3d11_dsv_desc.ViewDimension == (D3D11_DSV_DIMENSION)dsv_desc.ViewDimension,
+                "Got unexpected view dimension %u.\n", d3d11_dsv_desc.ViewDimension);
+        ok(!d3d11_dsv_desc.Flags, "Got unexpected flags %#x.\n", d3d11_dsv_desc.Flags);
+        ok(U(d3d11_dsv_desc).Texture2D.MipSlice == U(dsv_desc).Texture2D.MipSlice,
+                "Got unexpected mip slice %u.\n", U(d3d11_dsv_desc).Texture2D.MipSlice);
+
+        ID3D11DepthStencilView_Release(d3d11_dsview);
+    }
+    else
+    {
+        win_skip("D3D11 is not available.\n");
+    }
+
+    ID3D10Texture2D_Release(texture);
+
+    refcount = ID3D10Device_Release(device);
+    ok(!refcount, "Device has %u references left.\n", refcount);
+}
+
 static void test_create_rendertarget_view(void)
 {
     D3D10_RENDER_TARGET_VIEW_DESC rtv_desc;
@@ -586,6 +783,7 @@ static void test_create_rendertarget_view(void)
     ID3D10Device *device, *tmp;
     ID3D10Texture2D *texture;
     ID3D10Buffer *buffer;
+    IUnknown *iface;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -634,6 +832,11 @@ static void test_create_rendertarget_view(void)
     ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n", refcount, expected_refcount);
     ID3D10Device_Release(tmp);
 
+    hr = ID3D10RenderTargetView_QueryInterface(rtview, &IID_ID3D11RenderTargetView, (void **)&iface);
+    ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
+            "Render target view should implement ID3D11RenderTargetView.\n");
+    if (SUCCEEDED(hr)) IUnknown_Release(iface);
+
     ID3D10RenderTargetView_Release(rtview);
     ID3D10Buffer_Release(buffer);
 
@@ -662,6 +865,11 @@ static void test_create_rendertarget_view(void)
             "Expected view dimension D3D10_RTV_DIMENSION_TEXTURE2D, got %#x\n", rtv_desc.ViewDimension);
     ok(U(rtv_desc).Texture2D.MipSlice == 0, "Expected mip slice 0, got %#x\n", U(rtv_desc).Texture2D.MipSlice);
 
+    hr = ID3D10RenderTargetView_QueryInterface(rtview, &IID_ID3D11RenderTargetView, (void **)&iface);
+    ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
+            "Render target view should implement ID3D11RenderTargetView.\n");
+    if (SUCCEEDED(hr)) IUnknown_Release(iface);
+
     ID3D10RenderTargetView_Release(rtview);
     ID3D10Texture2D_Release(texture);
 
@@ -679,6 +887,7 @@ static void test_create_shader_resource_view(void)
     ID3D10Device *device, *tmp;
     ID3D10Texture2D *texture;
     ID3D10Buffer *buffer;
+    IUnknown *iface;
     HRESULT hr;
 
     if (!(device = create_device()))
@@ -717,6 +926,11 @@ static void test_create_shader_resource_view(void)
     ok(refcount == expected_refcount, "Got unexpected refcount %u, expected %u.\n", refcount, expected_refcount);
     ID3D10Device_Release(tmp);
 
+    hr = ID3D10ShaderResourceView_QueryInterface(srview, &IID_ID3D11ShaderResourceView, (void **)&iface);
+    ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
+            "Shader resource view should implement ID3D11ShaderResourceView.\n");
+    if (SUCCEEDED(hr)) IUnknown_Release(iface);
+
     ID3D10ShaderResourceView_Release(srview);
     ID3D10Buffer_Release(buffer);
 
@@ -745,6 +959,11 @@ static void test_create_shader_resource_view(void)
     ok(U(srv_desc).Texture2D.MostDetailedMip == 0, "Got unexpected MostDetailedMip %u.\n",
             U(srv_desc).Texture2D.MostDetailedMip);
     ok(U(srv_desc).Texture2D.MipLevels == 10, "Got unexpected MipLevels %u.\n", U(srv_desc).Texture2D.MipLevels);
+
+    hr = ID3D10ShaderResourceView_QueryInterface(srview, &IID_ID3D11ShaderResourceView, (void **)&iface);
+    ok(SUCCEEDED(hr) || broken(hr == E_NOINTERFACE) /* Not available on all Windows versions. */,
+            "Shader resource view should implement ID3D11ShaderResourceView.\n");
+    if (SUCCEEDED(hr)) IUnknown_Release(iface);
 
     ID3D10ShaderResourceView_Release(srview);
     ID3D10Texture2D_Release(texture);
@@ -3607,7 +3826,9 @@ START_TEST(device)
     test_create_texture2d();
     test_texture2d_interfaces();
     test_create_texture3d();
+    test_buffer_interfaces();
     test_create_depthstencil_view();
+    test_depthstencil_view_interfaces();
     test_create_rendertarget_view();
     test_create_shader_resource_view();
     test_create_shader();

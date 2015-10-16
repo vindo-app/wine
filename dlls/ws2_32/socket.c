@@ -6470,9 +6470,9 @@ int WINAPI WS_getaddrinfo(LPCSTR nodename, LPCSTR servname, const struct WS_addr
     if (result && !strcmp(hostname, node))
     {
         /* If it didn't work it means the host name IP is not in /etc/hosts, try again
-         * by sending a NULL host and avoid sending a NULL servname too because that
-         * is invalid */
-        ERR_(winediag)("Failed to resolve your host name IP, attempting to resolve as NULL. You should fix this!\n");
+        * by sending a NULL host and avoid sending a NULL servname too because that
+        * is invalid */
+        ERR_(winediag)("Failed to resolve your host name IP\n");
         result = getaddrinfo(NULL, servname ? servname : "0", punixhints, &unixaires);
     }
     TRACE("%s, %s %p -> %p %d\n", debugstr_a(nodename), debugstr_a(servname), hints, res, result);
@@ -7867,6 +7867,36 @@ INT WINAPI WS_inet_pton( INT family, PCSTR addr, PVOID buffer)
 #endif
 }
 
+/***********************************************************************
+*              InetPtonW                      (WS2_32.@)
+*/
+INT WINAPI InetPtonW(INT family, PCWSTR addr, PVOID buffer)
+{
+    char *addrA;
+    int len;
+    INT ret;
+
+    TRACE("family %d, addr '%s', buffer (%p)\n", family, addr ? debugstr_w(addr) : "(null)", buffer);
+
+    if (!addr)
+    {
+        SetLastError(WSAEFAULT);
+        return SOCKET_ERROR;
+    }
+
+    len = WideCharToMultiByte(CP_ACP, 0, addr, -1, NULL, 0, NULL, NULL);
+    if (!(addrA = HeapAlloc(GetProcessHeap(), 0, len)))
+    {
+        SetLastError(WSA_NOT_ENOUGH_MEMORY);
+        return SOCKET_ERROR;
+    }
+    WideCharToMultiByte(CP_ACP, 0, addr, -1, addrA, len, NULL, NULL);
+
+    ret = WS_inet_pton(family, addrA, buffer);
+
+    HeapFree(GetProcessHeap(), 0, addrA);
+    return ret;
+}
 
 /***********************************************************************
  *              WSAStringToAddressA                      (WS2_32.80)

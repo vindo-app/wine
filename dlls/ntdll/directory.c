@@ -2760,26 +2760,20 @@ static NTSTATUS get_dos_device( const WCHAR *name, UINT name_len, ANSI_STRING *u
 
 
 /* return the length of the DOS namespace prefix if any */
-static inline NTSTATUS get_dos_prefix_len( const UNICODE_STRING *name, int *prefix_len )
+static inline int get_dos_prefix_len( const UNICODE_STRING *name )
 {
     static const WCHAR nt_prefixW[] = {'\\','?','?','\\'};
     static const WCHAR dosdev_prefixW[] = {'\\','D','o','s','D','e','v','i','c','e','s','\\'};
 
     if (name->Length >= sizeof(nt_prefixW) &&
         !memcmp( name->Buffer, nt_prefixW, sizeof(nt_prefixW) ))
-    {
-        *prefix_len = sizeof(nt_prefixW) / sizeof(WCHAR);
-        return (name->Length == sizeof(nt_prefixW)) ? STATUS_OBJECT_NAME_INVALID : STATUS_SUCCESS;
-    }
+        return sizeof(nt_prefixW) / sizeof(WCHAR);
 
     if (name->Length >= sizeof(dosdev_prefixW) &&
         !memicmpW( name->Buffer, dosdev_prefixW, sizeof(dosdev_prefixW)/sizeof(WCHAR) ))
-    {
-        *prefix_len = sizeof(dosdev_prefixW) / sizeof(WCHAR);
-        return (name->Length == sizeof(dosdev_prefixW)) ? STATUS_OBJECT_NAME_INVALID : STATUS_SUCCESS;
-    }
+        return sizeof(dosdev_prefixW) / sizeof(WCHAR);
 
-    return STATUS_BAD_DEVICE_TYPE;
+    return 0;
 }
 
 
@@ -3137,11 +3131,13 @@ NTSTATUS CDECL wine_nt_to_unix_file_name( const UNICODE_STRING *nameW, ANSI_STRI
 
     if (!name_len || !IS_SEPARATOR(name[0])) return STATUS_OBJECT_PATH_SYNTAX_BAD;
 
-    if ((status = get_dos_prefix_len( nameW, &pos )))
-        return status;  /* no DOS prefix, assume NT native name */
+    if (!(pos = get_dos_prefix_len( nameW )))
+        return STATUS_BAD_DEVICE_TYPE;  /* no DOS prefix, assume NT native name */
 
     name += pos;
     name_len -= pos;
+
+    if (!name_len) return STATUS_OBJECT_NAME_INVALID;
 
     /* check for sub-directory */
     for (pos = 0; pos < name_len; pos++)

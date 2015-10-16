@@ -367,13 +367,6 @@ DWORD wined3d_usage_from_d3d11(UINT bind_flags, enum D3D11_USAGE usage)
     return wined3d_usage;
 }
 
-DWORD wined3d_usage_from_d3d10core(UINT bind_flags, enum D3D10_USAGE usage)
-{
-    UINT d3d11_bind_flags = d3d11_bind_flags_from_d3d10_bind_flags(bind_flags);
-    enum D3D11_USAGE d3d11_usage = d3d11_usage_from_d3d10_usage(usage);
-    return wined3d_usage_from_d3d11(d3d11_bind_flags, d3d11_usage);
-}
-
 enum D3D11_USAGE d3d11_usage_from_d3d10_usage(enum D3D10_USAGE usage)
 {
     switch (usage)
@@ -509,7 +502,29 @@ UINT d3d10_resource_misc_flags_from_d3d11_resource_misc_flags(UINT resource_misc
     return d3d10_resource_misc_flags;
 }
 
-struct wined3d_resource *wined3d_resource_from_resource(ID3D10Resource *resource)
+struct wined3d_resource *wined3d_resource_from_d3d11_resource(ID3D11Resource *resource)
+{
+    D3D11_RESOURCE_DIMENSION dimension;
+
+    ID3D11Resource_GetType(resource, &dimension);
+
+    switch (dimension)
+    {
+        case D3D11_RESOURCE_DIMENSION_BUFFER:
+            return wined3d_buffer_get_resource(unsafe_impl_from_ID3D11Buffer(
+                    (ID3D11Buffer *)resource)->wined3d_buffer);
+
+        case D3D11_RESOURCE_DIMENSION_TEXTURE2D:
+            return wined3d_texture_get_resource(unsafe_impl_from_ID3D11Texture2D(
+                    (ID3D11Texture2D *)resource)->wined3d_texture);
+
+        default:
+            FIXME("Unhandled resource dimension %#x.\n", dimension);
+            return NULL;
+    }
+}
+
+struct wined3d_resource *wined3d_resource_from_d3d10_resource(ID3D10Resource *resource)
 {
     D3D10_RESOURCE_DIMENSION dimension;
 

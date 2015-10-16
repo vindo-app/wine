@@ -631,7 +631,7 @@ static void EDIT_BuildLineDefs_ML(EDITSTATE *es, INT istart, INT iend, INT delta
 			prev = current_line->net_length - 1;
 			w = current_line->net_length;
 			d = (float)current_line->width/(float)fw;
-			if (d > 1.2) d -= 0.2;
+			if (d > 1.2f) d -= 0.2f;
 			next = prev/d;
 			if (next >= prev) next = prev-1;
 			do {
@@ -3925,10 +3925,11 @@ static void EDIT_WM_SetText(EDITSTATE *es, LPCWSTR text, BOOL unicode)
  */
 static void EDIT_WM_Size(EDITSTATE *es, UINT action, INT width, INT height)
 {
-	if ((action == SIZE_MAXIMIZED) || (action == SIZE_RESTORED)) {
+	if ((action == SIZE_MAXIMIZED) || (action == SIZE_RESTORED))
+	{
 		RECT rc;
-		TRACE("width = %d, height = %d\n", width, height);
-		SetRect(&rc, 0, 0, width, height);
+		/* Approach passes zero as width/height, so don't trust these values */
+		GetClientRect(es->hwndSelf, &rc);
 		EDIT_SetRectNP(es, &rc);
 		EDIT_UpdateText(es, NULL, TRUE);
 	}

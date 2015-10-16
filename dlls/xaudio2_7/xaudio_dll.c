@@ -36,6 +36,8 @@
 
 #include "mmsystem.h"
 #include "xaudio2.h"
+#include "xaudio2fx.h"
+#include "xapo.h"
 #include "devpkey.h"
 #include "mmdeviceapi.h"
 #include "audioclient.h"
@@ -78,6 +80,9 @@ static void dump_fmt(const WAVEFORMATEX *fmt)
         TRACE("dwChannelMask: %08x\n", fmtex->dwChannelMask);
         TRACE("Samples: %04x\n", fmtex->Samples.wReserved);
         TRACE("SubFormat: %s\n", wine_dbgstr_guid(&fmtex->SubFormat));
+    }else if(fmt->wFormatTag == WAVE_FORMAT_ADPCM){
+        ADPCMWAVEFORMAT *fmtadpcm = (void*)fmt;
+        TRACE("wSamplesPerBlock: %u\n", fmtadpcm->wSamplesPerBlock);
     }
 }
 
@@ -125,7 +130,7 @@ HRESULT WINAPI DllUnregisterServer(void)
 typedef struct _XA2Buffer {
     XAUDIO2_BUFFER xa2buffer;
     DWORD offs_bytes;
-    UINT32 latest_al_buf;
+    UINT32 latest_al_buf, looped, loop_end_bytes, play_end_bytes, cur_end_bytes;
 } XA2Buffer;
 
 typedef struct _IXAudio2Impl IXAudio2Impl;
@@ -623,7 +628,67 @@ static HRESULT WINAPI XA2SRC_SubmitSourceBuffer(IXAudio2SourceVoice *iface,
      * but pBuffer itself may be reused immediately */
     memcpy(&buf->xa2buffer, pBuffer, sizeof(*pBuffer));
 
-    buf->offs_bytes = 0;
+    /* convert samples offsets to bytes */
+    if(This->fmt->wFormatTag == WAVE_FORMAT_ADPCM){
+        /* ADPCM gives us a number of samples per block, so round down to
+         * nearest block and convert to bytes */
+        buf->xa2buffer.PlayBegin = buf->xa2buffer.PlayBegin / ((ADPCMWAVEFORMAT*)This->fmt)->wSamplesPerBlock * This->fmt->nBlockAlign;
+        buf->xa2buffer.PlayLength = buf->xa2buffer.PlayLength / ((ADPCMWAVEFORMAT*)This->fmt)->wSamplesPerBlock * This->fmt->nBlockAlign;
+        buf->xa2buffer.LoopBegin = buf->xa2buffer.LoopBegin / ((ADPCMWAVEFORMAT*)This->fmt)->wSamplesPerBlock * This->fmt->nBlockAlign;
+        buf->xa2buffer.LoopLength = buf->xa2buffer.LoopLength / ((ADPCMWAVEFORMAT*)This->fmt)->wSamplesPerBlock * This->fmt->nBlockAlign;
+    }else{
+        buf->xa2buffer.PlayBegin *= This->fmt->nBlockAlign;
+        buf->xa2buffer.PlayLength *= This->fmt->nBlockAlign;
+        buf->xa2buffer.LoopBegin *= This->fmt->nBlockAlign;
+        buf->xa2buffer.LoopLength *= This->fmt->nBlockAlign;
+    }
+
+    if(buf->xa2buffer.PlayLength == 0)
+        /* set to end of buffer */
+        buf->xa2buffer.PlayLength = buf->xa2buffer.AudioBytes - buf->xa2buffer.PlayBegin;
+
+    buf->play_end_bytes = buf->xa2buffer.PlayBegin + buf->xa2buffer.PlayLength;
+
+    if(buf->xa2buffer.LoopCount){
+        if(buf->xa2buffer.LoopLength == 0)
+            /* set to end of play range */
+            buf->xa2buffer.LoopLength = buf->play_end_bytes - buf->xa2buffer.LoopBegin;
+
+        if(buf->xa2buffer.LoopBegin >= buf->play_end_bytes){
+            /* this actually crashes on native xaudio 2.7 */
+            LeaveCriticalSection(&This->lock);
+            return XAUDIO2_E_INVALID_CALL;
+        }
+
+        buf->loop_end_bytes = buf->xa2buffer.LoopBegin + buf->xa2buffer.LoopLength;
+
+        /* xaudio 2.7 allows some invalid looping setups, but later versions
+         * return an error */
+        if(This->xa2->version > 27){
+            if(buf->loop_end_bytes > buf->play_end_bytes){
+                LeaveCriticalSection(&This->lock);
+                return XAUDIO2_E_INVALID_CALL;
+            }
+
+            if(buf->loop_end_bytes <= buf->xa2buffer.PlayBegin){
+                LeaveCriticalSection(&This->lock);
+                return XAUDIO2_E_INVALID_CALL;
+            }
+        }else{
+            if(buf->loop_end_bytes <= buf->xa2buffer.PlayBegin){
+                buf->xa2buffer.LoopCount = 0;
+                buf->loop_end_bytes = buf->play_end_bytes;
+            }
+        }
+    }else{
+        buf->xa2buffer.LoopLength = buf->xa2buffer.PlayLength;
+        buf->xa2buffer.LoopBegin = buf->xa2buffer.PlayBegin;
+        buf->loop_end_bytes = buf->play_end_bytes;
+    }
+
+    buf->offs_bytes = buf->xa2buffer.PlayBegin;
+    buf->cur_end_bytes = buf->loop_end_bytes;
+
     buf->latest_al_buf = -1;
 
     ++This->nbufs;
@@ -683,14 +748,33 @@ static HRESULT WINAPI XA2SRC_FlushSourceBuffers(IXAudio2SourceVoice *iface)
 static HRESULT WINAPI XA2SRC_Discontinuity(IXAudio2SourceVoice *iface)
 {
     XA2SourceImpl *This = impl_from_IXAudio2SourceVoice(iface);
+
     TRACE("%p\n", This);
+
+    EnterCriticalSection(&This->lock);
+
+    if(This->nbufs > 0){
+        DWORD last = (This->first_buf + This->nbufs - 1) % XAUDIO2_MAX_QUEUED_BUFFERS;
+        This->buffers[last].xa2buffer.Flags |= XAUDIO2_END_OF_STREAM;
+    }
+
+    LeaveCriticalSection(&This->lock);
+
     return S_OK;
 }
 
 static HRESULT WINAPI XA2SRC_ExitLoop(IXAudio2SourceVoice *iface, UINT32 OperationSet)
 {
     XA2SourceImpl *This = impl_from_IXAudio2SourceVoice(iface);
+
     TRACE("%p, 0x%x\n", This, OperationSet);
+
+    EnterCriticalSection(&This->lock);
+
+    This->buffers[This->cur_buf].looped = XAUDIO2_LOOP_INFINITE;
+
+    LeaveCriticalSection(&This->lock);
+
     return S_OK;
 }
 
@@ -703,13 +787,9 @@ static void WINAPI XA2SRC_GetState(IXAudio2SourceVoice *iface,
 
     EnterCriticalSection(&This->lock);
 
-    if(!(Flags & XAUDIO2_VOICE_NOSAMPLESPLAYED)){
-        ALint bufpos = 0;
-
-        alGetSourcei(This->al_src, AL_SAMPLE_OFFSET, &bufpos);
-
-        pVoiceState->SamplesPlayed = This->played_frames + bufpos;
-    }else
+    if(!(Flags & XAUDIO2_VOICE_NOSAMPLESPLAYED))
+        pVoiceState->SamplesPlayed = This->played_frames;
+    else
         pVoiceState->SamplesPlayed = 0;
 
     if(This->nbufs)
@@ -728,14 +808,32 @@ static HRESULT WINAPI XA2SRC_SetFrequencyRatio(IXAudio2SourceVoice *iface,
         float Ratio, UINT32 OperationSet)
 {
     XA2SourceImpl *This = impl_from_IXAudio2SourceVoice(iface);
+    ALfloat r;
+
     TRACE("%p, %f, 0x%x\n", This, Ratio, OperationSet);
+
+    if(Ratio < XAUDIO2_MIN_FREQ_RATIO)
+        r = XAUDIO2_MIN_FREQ_RATIO;
+    else if (Ratio > XAUDIO2_MAX_FREQ_RATIO)
+        r = XAUDIO2_MAX_FREQ_RATIO;
+    else
+        r = Ratio;
+
+    alSourcef(This->al_src, AL_PITCH, r);
+
     return S_OK;
 }
 
 static void WINAPI XA2SRC_GetFrequencyRatio(IXAudio2SourceVoice *iface, float *pRatio)
 {
+    ALfloat ratio;
     XA2SourceImpl *This = impl_from_IXAudio2SourceVoice(iface);
+
     TRACE("%p, %p\n", This, pRatio);
+
+    alGetSourcef(This->al_src, AL_PITCH, &ratio);
+
+    *pRatio = ratio;
 }
 
 static HRESULT WINAPI XA2SRC_SetSourceSampleRate(
@@ -743,7 +841,20 @@ static HRESULT WINAPI XA2SRC_SetSourceSampleRate(
     UINT32 NewSourceSampleRate)
 {
     XA2SourceImpl *This = impl_from_IXAudio2SourceVoice(iface);
+
     TRACE("%p, %u\n", This, NewSourceSampleRate);
+
+    EnterCriticalSection(&This->lock);
+
+    if(This->nbufs){
+        LeaveCriticalSection(&This->lock);
+        return XAUDIO2_E_INVALID_CALL;
+    }
+
+    This->fmt->nSamplesPerSec = NewSourceSampleRate;
+
+    LeaveCriticalSection(&This->lock);
+
     return S_OK;
 }
 
@@ -1032,6 +1143,9 @@ static void WINAPI XA2M_GetVoiceDetails(IXAudio2MasteringVoice *iface,
 {
     IXAudio2Impl *This = impl_from_IXAudio2MasteringVoice(iface);
     TRACE("%p, %p\n", This, pVoiceDetails);
+    pVoiceDetails->CreationFlags = 0;
+    pVoiceDetails->InputChannels = This->fmt.Format.nChannels;
+    pVoiceDetails->InputSampleRate = This->fmt.Format.nSamplesPerSec;
 }
 
 static HRESULT WINAPI XA2M_SetOutputVoices(IXAudio2MasteringVoice *iface,
@@ -1185,6 +1299,8 @@ static void WINAPI XA2M_DestroyVoice(IXAudio2MasteringVoice *iface)
         LeaveCriticalSection(&This->lock);
         return;
     }
+
+    This->running = FALSE;
 
     IAudioRenderClient_Release(This->render);
     This->render = NULL;
@@ -1723,7 +1839,7 @@ static HRESULT WINAPI IXAudio2Impl_CreateMasteringVoice(IXAudio2 *iface,
     HRESULT hr;
     WAVEFORMATEX *fmt;
     ALCint attrs[7];
-    REFERENCE_TIME period;
+    REFERENCE_TIME period, bufdur;
 
     TRACE("(%p)->(%p, %u, %u, 0x%x, %s, %p, 0x%x)\n", This,
             ppMasteringVoice, inputChannels, inputSampleRate, flags,
@@ -1810,18 +1926,21 @@ static HRESULT WINAPI IXAudio2Impl_CreateMasteringVoice(IXAudio2 *iface,
 
     CoTaskMemFree(fmt);
 
-    hr = IAudioClient_Initialize(This->aclient, AUDCLNT_SHAREMODE_SHARED,
-            AUDCLNT_STREAMFLAGS_EVENTCALLBACK, inputSampleRate /* 1s buffer */,
-            0, &This->fmt.Format, NULL);
+    hr = IAudioClient_GetDevicePeriod(This->aclient, &period, NULL);
     if(FAILED(hr)){
-        WARN("Initialize failed: %08x\n", hr);
+        WARN("GetDevicePeriod failed: %08x\n", hr);
         hr = XAUDIO2_E_DEVICE_INVALIDATED;
         goto exit;
     }
 
-    hr = IAudioClient_GetDevicePeriod(This->aclient, &period, NULL);
+    /* 3 periods or 0.1 seconds */
+    bufdur = max(3 * period, 1000000);
+
+    hr = IAudioClient_Initialize(This->aclient, AUDCLNT_SHAREMODE_SHARED,
+            AUDCLNT_STREAMFLAGS_EVENTCALLBACK, bufdur,
+            0, &This->fmt.Format, NULL);
     if(FAILED(hr)){
-        WARN("GetDevicePeriod failed: %08x\n", hr);
+        WARN("Initialize failed: %08x\n", hr);
         hr = XAUDIO2_E_DEVICE_INVALIDATED;
         goto exit;
     }
@@ -1960,7 +2079,7 @@ static HRESULT WINAPI IXAudio2Impl_CommitChanges(IXAudio2 *iface,
 {
     IXAudio2Impl *This = impl_from_IXAudio2(iface);
 
-    FIXME("(%p)->(0x%x): stub!\n", This, operationSet);
+    TRACE("(%p)->(0x%x): stub!\n", This, operationSet);
 
     return E_NOTIMPL;
 }
@@ -1970,7 +2089,7 @@ static void WINAPI IXAudio2Impl_GetPerformanceData(IXAudio2 *iface,
 {
     IXAudio2Impl *This = impl_from_IXAudio2(iface);
 
-    FIXME("(%p)->(%p): stub!\n", This, pPerfData);
+    TRACE("(%p)->(%p): stub!\n", This, pPerfData);
 
     memset(pPerfData, 0, sizeof(*pPerfData));
 }
@@ -2231,6 +2350,408 @@ static const IXAudio27Vtbl XAudio27_Vtbl = {
     XA27_SetDebugConfiguration
 };
 
+typedef struct _VUMeterImpl {
+    IXAPO IXAPO_iface;
+    IXAPOParameters IXAPOParameters_iface;
+
+    LONG ref;
+} VUMeterImpl;
+
+static VUMeterImpl *VUMeterImpl_from_IXAPO(IXAPO *iface)
+{
+    return CONTAINING_RECORD(iface, VUMeterImpl, IXAPO_iface);
+}
+
+static VUMeterImpl *VUMeterImpl_from_IXAPOParameters(IXAPOParameters *iface)
+{
+    return CONTAINING_RECORD(iface, VUMeterImpl, IXAPOParameters_iface);
+}
+
+static HRESULT WINAPI VUMXAPO_QueryInterface(IXAPO *iface, REFIID riid,
+        void **ppvObject)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+
+    TRACE("%p, %s, %p\n", This, wine_dbgstr_guid(riid), ppvObject);
+
+    if(IsEqualGUID(riid, &IID_IUnknown) ||
+            IsEqualGUID(riid, &IID_IXAPO) ||
+            IsEqualGUID(riid, &IID_IXAPO27))
+        *ppvObject = &This->IXAPO_iface;
+    else if(IsEqualGUID(riid, &IID_IXAPOParameters))
+        *ppvObject = &This->IXAPOParameters_iface;
+    else
+        *ppvObject = NULL;
+
+    if(*ppvObject){
+        IUnknown_AddRef((IUnknown*)*ppvObject);
+        return S_OK;
+    }
+
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI VUMXAPO_AddRef(IXAPO *iface)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    ULONG ref = InterlockedIncrement(&This->ref);
+    TRACE("(%p)->(): Refcount now %u\n", This, ref);
+    return ref;
+}
+
+static ULONG WINAPI VUMXAPO_Release(IXAPO *iface)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    ULONG ref = InterlockedDecrement(&This->ref);
+
+    TRACE("(%p)->(): Refcount now %u\n", This, ref);
+
+    if(!ref)
+        HeapFree(GetProcessHeap(), 0, This);
+
+    return ref;
+}
+
+static HRESULT WINAPI VUMXAPO_GetRegistrationProperties(IXAPO *iface,
+    XAPO_REGISTRATION_PROPERTIES **props)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %p\n", This, props);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI VUMXAPO_IsInputFormatSupported(IXAPO *iface,
+        const WAVEFORMATEX *output_fmt, const WAVEFORMATEX *input_fmt,
+        WAVEFORMATEX **supported_fmt)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %p, %p, %p\n", This, output_fmt, input_fmt, supported_fmt);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI VUMXAPO_IsOutputFormatSupported(IXAPO *iface,
+        const WAVEFORMATEX *input_fmt, const WAVEFORMATEX *output_fmt,
+        WAVEFORMATEX **supported_fmt)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %p, %p, %p\n", This, input_fmt, output_fmt, supported_fmt);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI VUMXAPO_Initialize(IXAPO *iface, const void *data,
+        UINT32 data_len)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %p, %u\n", This, data, data_len);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI VUMXAPO_Reset(IXAPO *iface)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p\n", This);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI VUMXAPO_LockForProcess(IXAPO *iface,
+        UINT32 in_params_count,
+        const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *in_params,
+        UINT32 out_params_count,
+        const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *out_params)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %u, %p, %u, %p\n", This, in_params_count, in_params,
+            out_params_count, out_params);
+    return E_NOTIMPL;
+}
+
+static void WINAPI VUMXAPO_UnlockForProcess(IXAPO *iface)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p\n", This);
+}
+
+static void WINAPI VUMXAPO_Process(IXAPO *iface, UINT32 in_params_count,
+        const XAPO_PROCESS_BUFFER_PARAMETERS *in_params,
+        UINT32 out_params_count,
+        const XAPO_PROCESS_BUFFER_PARAMETERS *out_params, BOOL enabled)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %u, %p, %u, %p, %u\n", This, in_params_count, in_params,
+            out_params_count, out_params, enabled);
+}
+
+static UINT32 WINAPI VUMXAPO_CalcInputFrames(IXAPO *iface, UINT32 output_frames)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %u\n", This, output_frames);
+    return 0;
+}
+
+static UINT32 WINAPI VUMXAPO_CalcOutputFrames(IXAPO *iface, UINT32 input_frames)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPO(iface);
+    TRACE("%p, %u\n", This, input_frames);
+    return 0;
+}
+
+static const IXAPOVtbl VUMXAPO_Vtbl = {
+    VUMXAPO_QueryInterface,
+    VUMXAPO_AddRef,
+    VUMXAPO_Release,
+    VUMXAPO_GetRegistrationProperties,
+    VUMXAPO_IsInputFormatSupported,
+    VUMXAPO_IsOutputFormatSupported,
+    VUMXAPO_Initialize,
+    VUMXAPO_Reset,
+    VUMXAPO_LockForProcess,
+    VUMXAPO_UnlockForProcess,
+    VUMXAPO_Process,
+    VUMXAPO_CalcInputFrames,
+    VUMXAPO_CalcOutputFrames
+};
+
+static HRESULT WINAPI VUMXAPOParams_QueryInterface(IXAPOParameters *iface,
+        REFIID riid, void **ppvObject)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPOParameters(iface);
+    return VUMXAPO_QueryInterface(&This->IXAPO_iface, riid, ppvObject);
+}
+
+static ULONG WINAPI VUMXAPOParams_AddRef(IXAPOParameters *iface)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPOParameters(iface);
+    return VUMXAPO_AddRef(&This->IXAPO_iface);
+}
+
+static ULONG WINAPI VUMXAPOParams_Release(IXAPOParameters *iface)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPOParameters(iface);
+    return VUMXAPO_Release(&This->IXAPO_iface);
+}
+
+static void WINAPI VUMXAPOParams_SetParameters(IXAPOParameters *iface,
+        const void *params, UINT32 params_len)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPOParameters(iface);
+    TRACE("%p, %p, %u\n", This, params, params_len);
+}
+
+static void WINAPI VUMXAPOParams_GetParameters(IXAPOParameters *iface,
+        void *params, UINT32 params_len)
+{
+    VUMeterImpl *This = VUMeterImpl_from_IXAPOParameters(iface);
+    TRACE("%p, %p, %u\n", This, params, params_len);
+}
+
+static const IXAPOParametersVtbl VUMXAPOParameters_Vtbl = {
+    VUMXAPOParams_QueryInterface,
+    VUMXAPOParams_AddRef,
+    VUMXAPOParams_Release,
+    VUMXAPOParams_SetParameters,
+    VUMXAPOParams_GetParameters
+};
+
+typedef struct _ReverbImpl {
+    IXAPO IXAPO_iface;
+    IXAPOParameters IXAPOParameters_iface;
+
+    LONG ref;
+} ReverbImpl;
+
+static ReverbImpl *ReverbImpl_from_IXAPO(IXAPO *iface)
+{
+    return CONTAINING_RECORD(iface, ReverbImpl, IXAPO_iface);
+}
+
+static ReverbImpl *ReverbImpl_from_IXAPOParameters(IXAPOParameters *iface)
+{
+    return CONTAINING_RECORD(iface, ReverbImpl, IXAPOParameters_iface);
+}
+
+static HRESULT WINAPI RVBXAPO_QueryInterface(IXAPO *iface, REFIID riid, void **ppvObject)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+
+    TRACE("%p, %s, %p\n", This, wine_dbgstr_guid(riid), ppvObject);
+
+    if(IsEqualGUID(riid, &IID_IUnknown) ||
+            IsEqualGUID(riid, &IID_IXAPO) ||
+            IsEqualGUID(riid, &IID_IXAPO27))
+        *ppvObject = &This->IXAPO_iface;
+    else if(IsEqualGUID(riid, &IID_IXAPOParameters))
+        *ppvObject = &This->IXAPOParameters_iface;
+    else
+        *ppvObject = NULL;
+
+    if(*ppvObject){
+        IUnknown_AddRef((IUnknown*)*ppvObject);
+        return S_OK;
+    }
+
+    return E_NOINTERFACE;
+}
+
+static ULONG WINAPI RVBXAPO_AddRef(IXAPO *iface)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    ULONG ref = InterlockedIncrement(&This->ref);
+    TRACE("(%p)->(): Refcount now %u\n", This, ref);
+    return ref;
+}
+
+static ULONG WINAPI RVBXAPO_Release(IXAPO *iface)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    ULONG ref = InterlockedDecrement(&This->ref);
+
+    TRACE("(%p)->(): Refcount now %u\n", This, ref);
+
+    if(!ref)
+        HeapFree(GetProcessHeap(), 0, This);
+
+    return ref;
+}
+
+static HRESULT WINAPI RVBXAPO_GetRegistrationProperties(IXAPO *iface,
+    XAPO_REGISTRATION_PROPERTIES **props)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %p\n", This, props);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI RVBXAPO_IsInputFormatSupported(IXAPO *iface,
+        const WAVEFORMATEX *output_fmt, const WAVEFORMATEX *input_fmt,
+        WAVEFORMATEX **supported_fmt)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %p, %p, %p\n", This, output_fmt, input_fmt, supported_fmt);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI RVBXAPO_IsOutputFormatSupported(IXAPO *iface,
+        const WAVEFORMATEX *input_fmt, const WAVEFORMATEX *output_fmt,
+        WAVEFORMATEX **supported_fmt)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %p, %p, %p\n", This, input_fmt, output_fmt, supported_fmt);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI RVBXAPO_Initialize(IXAPO *iface, const void *data,
+        UINT32 data_len)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %p, %u\n", This, data, data_len);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI RVBXAPO_Reset(IXAPO *iface)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p\n", This);
+    return E_NOTIMPL;
+}
+
+static HRESULT WINAPI RVBXAPO_LockForProcess(IXAPO *iface, UINT32 in_params_count,
+        const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *in_params,
+        UINT32 out_params_count,
+        const XAPO_LOCKFORPROCESS_BUFFER_PARAMETERS *out_params)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %u, %p, %u, %p\n", This, in_params_count, in_params,
+            out_params_count, out_params);
+    return E_NOTIMPL;
+}
+
+static void WINAPI RVBXAPO_UnlockForProcess(IXAPO *iface)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p\n", This);
+}
+
+static void WINAPI RVBXAPO_Process(IXAPO *iface, UINT32 in_params_count,
+        const XAPO_PROCESS_BUFFER_PARAMETERS *in_params,
+        UINT32 out_params_count,
+        const XAPO_PROCESS_BUFFER_PARAMETERS *out_params, BOOL enabled)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %u, %p, %u, %p, %u\n", This, in_params_count, in_params,
+            out_params_count, out_params, enabled);
+}
+
+static UINT32 WINAPI RVBXAPO_CalcInputFrames(IXAPO *iface, UINT32 output_frames)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %u\n", This, output_frames);
+    return 0;
+}
+
+static UINT32 WINAPI RVBXAPO_CalcOutputFrames(IXAPO *iface, UINT32 input_frames)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPO(iface);
+    TRACE("%p, %u\n", This, input_frames);
+    return 0;
+}
+
+static const IXAPOVtbl RVBXAPO_Vtbl = {
+    RVBXAPO_QueryInterface,
+    RVBXAPO_AddRef,
+    RVBXAPO_Release,
+    RVBXAPO_GetRegistrationProperties,
+    RVBXAPO_IsInputFormatSupported,
+    RVBXAPO_IsOutputFormatSupported,
+    RVBXAPO_Initialize,
+    RVBXAPO_Reset,
+    RVBXAPO_LockForProcess,
+    RVBXAPO_UnlockForProcess,
+    RVBXAPO_Process,
+    RVBXAPO_CalcInputFrames,
+    RVBXAPO_CalcOutputFrames
+};
+
+static HRESULT WINAPI RVBXAPOParams_QueryInterface(IXAPOParameters *iface,
+        REFIID riid, void **ppvObject)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPOParameters(iface);
+    return RVBXAPO_QueryInterface(&This->IXAPO_iface, riid, ppvObject);
+}
+
+static ULONG WINAPI RVBXAPOParams_AddRef(IXAPOParameters *iface)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPOParameters(iface);
+    return RVBXAPO_AddRef(&This->IXAPO_iface);
+}
+
+static ULONG WINAPI RVBXAPOParams_Release(IXAPOParameters *iface)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPOParameters(iface);
+    return RVBXAPO_Release(&This->IXAPO_iface);
+}
+
+static void WINAPI RVBXAPOParams_SetParameters(IXAPOParameters *iface,
+        const void *params, UINT32 params_len)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPOParameters(iface);
+    TRACE("%p, %p, %u\n", This, params, params_len);
+}
+
+static void WINAPI RVBXAPOParams_GetParameters(IXAPOParameters *iface, void *params,
+        UINT32 params_len)
+{
+    ReverbImpl *This = ReverbImpl_from_IXAPOParameters(iface);
+    TRACE("%p, %p, %u\n", This, params, params_len);
+}
+
+static const IXAPOParametersVtbl RVBXAPOParameters_Vtbl = {
+    RVBXAPOParams_QueryInterface,
+    RVBXAPOParams_AddRef,
+    RVBXAPOParams_Release,
+    RVBXAPOParams_SetParameters,
+    RVBXAPOParams_GetParameters
+};
+
 static HRESULT WINAPI XAudio2CF_QueryInterface(IClassFactory *iface, REFIID riid, void **ppobj)
 {
     if(IsEqualGUID(riid, &IID_IUnknown)
@@ -2382,6 +2903,64 @@ static HRESULT WINAPI XAudio2CF_CreateInstance(IClassFactory *iface, IUnknown *p
     return hr;
 }
 
+static HRESULT WINAPI VUMeterCF_CreateInstance(IClassFactory *iface, IUnknown *pOuter,
+        REFIID riid, void **ppobj)
+{
+    HRESULT hr;
+    VUMeterImpl *object;
+
+    TRACE("(static)->(%p,%s,%p)\n", pOuter, debugstr_guid(riid), ppobj);
+
+    *ppobj = NULL;
+
+    if(pOuter)
+        return CLASS_E_NOAGGREGATION;
+
+    object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object));
+    if(!object)
+        return E_OUTOFMEMORY;
+
+    object->IXAPO_iface.lpVtbl = &VUMXAPO_Vtbl;
+    object->IXAPOParameters_iface.lpVtbl = &VUMXAPOParameters_Vtbl;
+
+    hr = IXAPO_QueryInterface(&object->IXAPO_iface, riid, ppobj);
+    if(FAILED(hr)){
+        HeapFree(GetProcessHeap(), 0, object);
+        return hr;
+    }
+
+    return S_OK;
+}
+
+static HRESULT WINAPI ReverbCF_CreateInstance(IClassFactory *iface, IUnknown *pOuter,
+        REFIID riid, void **ppobj)
+{
+    HRESULT hr;
+    ReverbImpl *object;
+
+    TRACE("(static)->(%p,%s,%p)\n", pOuter, debugstr_guid(riid), ppobj);
+
+    *ppobj = NULL;
+
+    if(pOuter)
+        return CLASS_E_NOAGGREGATION;
+
+    object = HeapAlloc(GetProcessHeap(), HEAP_ZERO_MEMORY, sizeof(*object));
+    if(!object)
+        return E_OUTOFMEMORY;
+
+    object->IXAPO_iface.lpVtbl = &RVBXAPO_Vtbl;
+    object->IXAPOParameters_iface.lpVtbl = &RVBXAPOParameters_Vtbl;
+
+    hr = IXAPO_QueryInterface(&object->IXAPO_iface, riid, ppobj);
+    if(FAILED(hr)){
+        HeapFree(GetProcessHeap(), 0, object);
+        return hr;
+    }
+
+    return S_OK;
+}
+
 static HRESULT WINAPI XAudio2CF_LockServer(IClassFactory *iface, BOOL dolock)
 {
     FIXME("(static)->(%d): stub!\n", dolock);
@@ -2397,7 +2976,27 @@ static const IClassFactoryVtbl XAudio2CF_Vtbl =
     XAudio2CF_LockServer
 };
 
+static const IClassFactoryVtbl VUMeterCF_Vtbl =
+{
+    XAudio2CF_QueryInterface,
+    XAudio2CF_AddRef,
+    XAudio2CF_Release,
+    VUMeterCF_CreateInstance,
+    XAudio2CF_LockServer
+};
+
+static const IClassFactoryVtbl ReverbCF_Vtbl =
+{
+    XAudio2CF_QueryInterface,
+    XAudio2CF_AddRef,
+    XAudio2CF_Release,
+    ReverbCF_CreateInstance,
+    XAudio2CF_LockServer
+};
+
 static IClassFactory xaudio2_cf = { &XAudio2CF_Vtbl };
+static IClassFactory vumeter_cf = { &VUMeterCF_Vtbl };
+static IClassFactory reverb_cf = { &ReverbCF_Vtbl };
 
 HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
 {
@@ -2407,6 +3006,10 @@ HRESULT WINAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void **ppv)
 
     if(IsEqualGUID(rclsid, &CLSID_XAudio2)) {
         factory = &xaudio2_cf;
+    }else if(IsEqualGUID(rclsid, &CLSID_AudioVolumeMeter)) {
+        factory = &vumeter_cf;
+    }else if(IsEqualGUID(rclsid, &CLSID_AudioReverb)) {
+        factory = &reverb_cf;
     }
     if(!factory) return CLASS_E_CLASSNOTAVAILABLE;
 
@@ -2420,12 +3023,12 @@ static BOOL xa2buffer_queue_period(XA2SourceImpl *src, XA2Buffer *buf, ALuint al
     UINT32 submit_bytes;
     const BYTE *submit_buf = NULL;
 
-    if(buf->offs_bytes >= buf->xa2buffer.AudioBytes){
+    if(buf->offs_bytes >= buf->cur_end_bytes){
         WARN("Shouldn't happen: Trying to push frames from a spent buffer?\n");
         return FALSE;
     }
 
-    submit_bytes = min(src->xa2->period_frames * src->submit_blocksize, buf->xa2buffer.AudioBytes - buf->offs_bytes);
+    submit_bytes = min(src->xa2->period_frames * src->submit_blocksize, buf->cur_end_bytes - buf->offs_bytes);
     submit_buf = buf->xa2buffer.pAudioData + buf->offs_bytes;
     buf->offs_bytes += submit_bytes;
 
@@ -2441,9 +3044,32 @@ static BOOL xa2buffer_queue_period(XA2SourceImpl *src, XA2Buffer *buf, ALuint al
 
     TRACE("queueing %u bytes, now %u in AL\n", submit_bytes, src->in_al_bytes);
 
-    return buf->offs_bytes < buf->xa2buffer.AudioBytes;
+    return buf->offs_bytes < buf->cur_end_bytes;
 }
 
+/* Looping:
+ *
+ * The looped section of a buffer is a subset of the play area which is looped
+ * LoopCount times.
+ *
+ *       v PlayBegin
+ *       vvvvvvvvvvvvvvvvvv PlayLength
+ *                        v (PlayEnd)
+ * [-----PPPLLLLLLLLPPPPPPP------]
+ *          ^ LoopBegin
+ *          ^^^^^^^^ LoopLength
+ *                 ^ (LoopEnd)
+ *
+ * In the simple case, playback will start at PlayBegin. At LoopEnd, playback
+ * will move to LoopBegin and repeat that loop LoopCount times. Then, playback
+ * will cease at LoopEnd.
+ *
+ * If PlayLength is zero, then PlayEnd is the end of the buffer.
+ *
+ * If LoopLength is zero, then LoopEnd is PlayEnd.
+ *
+ * For corner cases and version differences, see tests.
+ */
 static void update_source_state(XA2SourceImpl *src)
 {
     int i;
@@ -2477,9 +3103,14 @@ static void update_source_state(XA2SourceImpl *src)
 
                 TRACE("%p: done with buffer %u\n", src, old_buf);
 
+                if(src->buffers[old_buf].xa2buffer.Flags & XAUDIO2_END_OF_STREAM)
+                    src->played_frames = 0;
+
                 if(src->cb){
                     IXAudio2VoiceCallback_OnBufferEnd(src->cb,
                             src->buffers[old_buf].xa2buffer.pContext);
+                    if(src->buffers[old_buf].xa2buffer.Flags & XAUDIO2_END_OF_STREAM)
+                        IXAudio2VoiceCallback_OnStreamEnd(src->cb);
 
                     if(src->nbufs > 0)
                         IXAudio2VoiceCallback_OnBufferStart(src->cb,
@@ -2497,15 +3128,35 @@ static void update_source_state(XA2SourceImpl *src)
         TRACE("%p: going to queue a period from buffer %u\n", src, src->cur_buf);
 
         /* starting from an empty buffer */
-        if(src->cb && src->cur_buf == src->first_buf && src->buffers[src->cur_buf].offs_bytes == 0)
+        if(src->cb && src->cur_buf == src->first_buf && src->buffers[src->cur_buf].offs_bytes == 0 && !src->buffers[src->cur_buf].looped)
             IXAudio2VoiceCallback_OnBufferStart(src->cb,
                     src->buffers[src->first_buf].xa2buffer.pContext);
 
         if(!xa2buffer_queue_period(src, &src->buffers[src->cur_buf],
                     src->al_bufs[(src->first_al_buf + src->al_bufs_used) % XAUDIO2_MAX_QUEUED_BUFFERS])){
-            /* buffer is spent, move on */
-            src->cur_buf++;
-            src->cur_buf %= XAUDIO2_MAX_QUEUED_BUFFERS;
+            XA2Buffer *cur = &src->buffers[src->cur_buf];
+
+            if(cur->looped < cur->xa2buffer.LoopCount){
+                if(cur->xa2buffer.LoopCount != XAUDIO2_LOOP_INFINITE)
+                    ++cur->looped;
+                else
+                    cur->looped = 1; /* indicate that we are executing a loop */
+
+                cur->offs_bytes = cur->xa2buffer.LoopBegin;
+                if(cur->looped == cur->xa2buffer.LoopCount)
+                    cur->cur_end_bytes = cur->play_end_bytes;
+                else
+                    cur->cur_end_bytes = cur->loop_end_bytes;
+
+                if(src->cb)
+                    IXAudio2VoiceCallback_OnLoopEnd(src->cb,
+                            src->buffers[src->cur_buf].xa2buffer.pContext);
+
+            }else{
+                /* buffer is spent, move on */
+                src->cur_buf++;
+                src->cur_buf %= XAUDIO2_MAX_QUEUED_BUFFERS;
+            }
         }
     }
 }
@@ -2582,10 +3233,12 @@ static DWORD WINAPI engine_threadproc(void *arg)
         if(This->stop_engine)
             break;
 
-        if(!This->running)
-            continue;
-
         EnterCriticalSection(&This->lock);
+
+        if(!This->running || !This->aclient){
+            LeaveCriticalSection(&This->lock);
+            continue;
+        }
 
         do_engine_tick(This);
 

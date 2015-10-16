@@ -2184,38 +2184,6 @@ struct wined3d_resource * CDECL wined3d_surface_get_resource(struct wined3d_surf
     return &surface->resource;
 }
 
-HRESULT CDECL wined3d_surface_get_blt_status(const struct wined3d_surface *surface, DWORD flags)
-{
-    TRACE("surface %p, flags %#x.\n", surface, flags);
-
-    switch (flags)
-    {
-        case WINEDDGBS_CANBLT:
-        case WINEDDGBS_ISBLTDONE:
-            return WINED3D_OK;
-
-        default:
-            return WINED3DERR_INVALIDCALL;
-    }
-}
-
-HRESULT CDECL wined3d_surface_get_flip_status(const struct wined3d_surface *surface, DWORD flags)
-{
-    TRACE("surface %p, flags %#x.\n", surface, flags);
-
-    /* XXX: DDERR_INVALIDSURFACETYPE */
-
-    switch (flags)
-    {
-        case WINEDDGFS_CANFLIP:
-        case WINEDDGFS_ISFLIPDONE:
-            return WINED3D_OK;
-
-        default:
-            return WINED3DERR_INVALIDCALL;
-    }
-}
-
 HRESULT CDECL wined3d_surface_is_lost(const struct wined3d_surface *surface)
 {
     TRACE("surface %p.\n", surface);
@@ -3624,85 +3592,6 @@ void surface_prepare_rb(struct wined3d_surface *surface, const struct wined3d_gl
     }
 }
 
-#if !defined(STAGING_CSMT)
-void flip_surface(struct wined3d_surface *front, struct wined3d_surface *back)
-{
-    if (front->container->level_count != 1 || front->container->layer_count != 1
-            || back->container->level_count != 1 || back->container->layer_count != 1)
-        ERR("Flip between surfaces %p and %p not supported.\n", front, back);
-
-    /* Flip the surface contents */
-    /* Flip the DC */
-    {
-        HDC tmp;
-        tmp = front->hDC;
-        front->hDC = back->hDC;
-        back->hDC = tmp;
-    }
-
-    /* Flip the DIBsection */
-    {
-        HBITMAP tmp = front->dib.DIBsection;
-        front->dib.DIBsection = back->dib.DIBsection;
-        back->dib.DIBsection = tmp;
-    }
-
-    /* Flip the surface data */
-    {
-        void* tmp;
-
-        tmp = front->dib.bitmap_data;
-        front->dib.bitmap_data = back->dib.bitmap_data;
-        back->dib.bitmap_data = tmp;
-
-        tmp = front->resource.heap_memory;
-        front->resource.heap_memory = back->resource.heap_memory;
-        back->resource.heap_memory = tmp;
-    }
-
-    /* Flip the PBO */
-    {
-        GLuint tmp_pbo = front->pbo;
-        front->pbo = back->pbo;
-        back->pbo = tmp_pbo;
-    }
-
-    /* Flip the opengl texture */
-    {
-        GLuint tmp;
-
-        tmp = back->container->texture_rgb.name;
-        back->container->texture_rgb.name = front->container->texture_rgb.name;
-        front->container->texture_rgb.name = tmp;
-
-        tmp = back->container->texture_srgb.name;
-        back->container->texture_srgb.name = front->container->texture_srgb.name;
-        front->container->texture_srgb.name = tmp;
-
-        tmp = back->rb_multisample;
-        back->rb_multisample = front->rb_multisample;
-        front->rb_multisample = tmp;
-
-        tmp = back->rb_resolved;
-        back->rb_resolved = front->rb_resolved;
-        front->rb_resolved = tmp;
-
-        resource_unload(&back->resource);
-        resource_unload(&front->resource);
-    }
-
-    {
-        DWORD tmp_flags = back->flags;
-        back->flags = front->flags;
-        front->flags = tmp_flags;
-
-        tmp_flags = back->locations;
-        back->locations = front->locations;
-        front->locations = tmp_flags;
-    }
-}
-
-#endif /* STAGING_CSMT */
 /* Does a direct frame buffer -> texture copy. Stretching is done with single
  * pixel copy calls. */
 static void fb_copy_to_texture_direct(struct wined3d_surface *dst_surface, struct wined3d_surface *src_surface,
@@ -4503,7 +4392,7 @@ void surface_load_ds_location(struct wined3d_surface *surface, struct wined3d_co
     struct wined3d_device *device = surface->resource.device;
     GLsizei w, h;
 
-    TRACE("surface %p, new location %#x.\n", surface, location);
+    TRACE("surface %p, context %p, new location %#x.\n", surface, context, location);
 
     /* TODO: Make this work for modes other than FBO */
     if (wined3d_settings.offscreen_rendering_mode != ORM_FBO) return;
@@ -6473,7 +6362,7 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
             | WINEDDBLT_DONOTWAIT;
 
 #if !defined(STAGING_CSMT)
-    TRACE("dst_surface %p, dst_rect %s, src_surface %p, src_rect %s, flags %#x, fx %p, filter %s.\n",
+    TRACE("dst_surface %p, dst_rect_in %s, src_surface %p, src_rect_in %s, flags %#x, fx %p, filter %s.\n",
             dst_surface, wine_dbgstr_rect(dst_rect_in), src_surface, wine_dbgstr_rect(src_rect_in),
             flags, fx, debug_d3dtexturefiltertype(filter));
     TRACE("Usage is %s.\n", debug_d3dusage(dst_surface->resource.usage));
@@ -6847,7 +6736,7 @@ HRESULT CDECL wined3d_surface_blt(struct wined3d_surface *dst_surface, const REC
     struct wined3d_device *device = dst_surface->resource.device;
     RECT src_rect, dst_rect;
 
-    TRACE("dst_surface %p, dst_rect %s, src_surface %p, src_rect %s, flags %#x, fx %p, filter %s.\n",
+    TRACE("dst_surface %p, dst_rect_in %s, src_surface %p, src_rect_in %s, flags %#x, fx %p, filter %s.\n",
             dst_surface, wine_dbgstr_rect(dst_rect_in), src_surface, wine_dbgstr_rect(src_rect_in),
             flags, fx, debug_d3dtexturefiltertype(filter));
     TRACE("Usage is %s.\n", debug_d3dusage(dst_surface->resource.usage));

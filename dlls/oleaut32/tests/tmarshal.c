@@ -842,7 +842,70 @@ static HRESULT WINAPI Widget_neg_restrict(IWidget* iface, INT *i)
 static HRESULT WINAPI Widget_VarArg_Run(
     IWidget *iface, BSTR name, SAFEARRAY *params, VARIANT *result)
 {
+    static const WCHAR catW[] = { 'C','a','t',0 };
+    static const WCHAR supermanW[] = { 'S','u','p','e','r','m','a','n',0 };
+    LONG bound;
+    VARIANT *var;
+    BSTR bstr;
+    HRESULT hr;
+
     trace("VarArg_Run(%p,%p,%p)\n", name, params, result);
+
+    ok(!lstrcmpW(name, catW), "got %s\n", wine_dbgstr_w(name));
+
+    hr = SafeArrayGetLBound(params, 1, &bound);
+    ok(hr == S_OK, "SafeArrayGetLBound error %#x\n", hr);
+    ok(bound == 0, "expected 0, got %d\n", bound);
+
+    hr = SafeArrayGetUBound(params, 1, &bound);
+    ok(hr == S_OK, "SafeArrayGetUBound error %#x\n", hr);
+    ok(bound == 0, "expected 0, got %d\n", bound);
+
+    hr = SafeArrayAccessData(params, (void **)&var);
+    ok(hr == S_OK, "SafeArrayAccessData failed with %x\n", hr);
+
+    ok(V_VT(&var[0]) == VT_BSTR, "expected VT_BSTR, got %d\n", V_VT(&var[0]));
+    bstr = V_BSTR(&var[0]);
+    ok(!lstrcmpW(bstr, supermanW), "got %s\n", wine_dbgstr_w(bstr));
+
+    hr = SafeArrayUnaccessData(params);
+    ok(hr == S_OK, "SafeArrayUnaccessData error %#x\n", hr);
+
+    return S_OK;
+}
+
+static HRESULT WINAPI Widget_VarArg_Ref_Run(
+    IWidget *iface, BSTR name, SAFEARRAY **params, VARIANT *result)
+{
+    static const WCHAR catW[] = { 'C','a','t',0 };
+    static const WCHAR supermanW[] = { 'S','u','p','e','r','m','a','n',0 };
+    LONG bound;
+    VARIANT *var;
+    BSTR bstr;
+    HRESULT hr;
+
+    trace("VarArg_Ref_Run(%p,%p,%p)\n", name, params, result);
+
+    ok(!lstrcmpW(name, catW), "got %s\n", wine_dbgstr_w(name));
+
+    hr = SafeArrayGetLBound(*params, 1, &bound);
+    ok(hr == S_OK, "SafeArrayGetLBound error %#x\n", hr);
+    ok(bound == 0, "expected 0, got %d\n", bound);
+
+    hr = SafeArrayGetUBound(*params, 1, &bound);
+    ok(hr == S_OK, "SafeArrayGetUBound error %#x\n", hr);
+    ok(bound == 0, "expected 0, got %d\n", bound);
+
+    hr = SafeArrayAccessData(*params, (void **)&var);
+    ok(hr == S_OK, "SafeArrayAccessData error %#x\n", hr);
+
+    ok(V_VT(&var[0]) == VT_BSTR, "expected VT_BSTR, got %d\n", V_VT(&var[0]));
+    bstr = V_BSTR(&var[0]);
+    ok(!lstrcmpW(bstr, supermanW), "got %s\n", wine_dbgstr_w(bstr));
+
+    hr = SafeArrayUnaccessData(*params);
+    ok(hr == S_OK, "SafeArrayUnaccessData error %#x\n", hr);
+
     return S_OK;
 }
 
@@ -884,7 +947,8 @@ static const struct IWidgetVtbl Widget_VTable =
     Widget_put_prop_req_arg,
     Widget_pos_restrict,
     Widget_neg_restrict,
-    Widget_VarArg_Run
+    Widget_VarArg_Run,
+    Widget_VarArg_Ref_Run
 };
 
 static HRESULT WINAPI StaticWidget_QueryInterface(IStaticWidget *iface, REFIID riid, void **ppvObject)
@@ -1470,6 +1534,30 @@ static void test_typelibmarshal(void)
     ok_ole_success(hr, IDispatch_Invoke);
     VariantClear(&varresult);
 
+    /* call Array with BSTR argument - type mismatch */
+    VariantInit(&vararg[0]);
+    V_VT(&vararg[0]) = VT_BSTR;
+    V_BSTR(&vararg[0]) = SysAllocString(szSuperman);
+    dispparams.cNamedArgs = 0;
+    dispparams.cArgs = 1;
+    dispparams.rgdispidNamedArgs = NULL;
+    dispparams.rgvarg = vararg;
+    hr = IDispatch_Invoke(pDispatch, DISPID_TM_ARRAY, &IID_NULL, LOCALE_NEUTRAL, DISPATCH_METHOD, &dispparams, NULL, NULL, NULL);
+    ok(hr == DISP_E_TYPEMISMATCH || hr == DISP_E_BADVARTYPE, "expected DISP_E_TYPEMISMATCH, got %#x\n", hr);
+    SysFreeString(V_BSTR(&vararg[0]));
+
+    /* call ArrayPtr with BSTR argument - type mismatch */
+    VariantInit(&vararg[0]);
+    V_VT(&vararg[0]) = VT_BSTR;
+    V_BSTR(&vararg[0]) = SysAllocString(szSuperman);
+    dispparams.cNamedArgs = 0;
+    dispparams.cArgs = 1;
+    dispparams.rgdispidNamedArgs = NULL;
+    dispparams.rgvarg = vararg;
+    hr = IDispatch_Invoke(pDispatch, DISPID_TM_VARARRAYPTR, &IID_NULL, LOCALE_NEUTRAL, DISPATCH_METHOD, &dispparams, NULL, NULL, NULL);
+    ok(hr == DISP_E_TYPEMISMATCH || hr == DISP_E_BADVARTYPE, "expected DISP_E_TYPEMISMATCH, got %#x\n", hr);
+    SysFreeString(V_BSTR(&vararg[0]));
+
     /* call VariantCArray - test marshaling of variant arrays */
     V_VT(&vararg[0]) = VT_I4;
     V_I4(&vararg[0]) = 1;
@@ -1516,13 +1604,28 @@ static void test_typelibmarshal(void)
     V_BSTR(&vararg[1]) = SysAllocString(szCat);
     VariantInit(&vararg[0]);
     V_VT(&vararg[0]) = VT_BSTR;
-    V_BSTR(&vararg[0]) = SysAllocString(NULL);
+    V_BSTR(&vararg[0]) = SysAllocString(szSuperman);
     dispparams.cNamedArgs = 0;
     dispparams.cArgs = 2;
     dispparams.rgdispidNamedArgs = NULL;
     dispparams.rgvarg = vararg;
     hr = IDispatch_Invoke(pDispatch, DISPID_TM_VARARG_RUN, &IID_NULL, LOCALE_NEUTRAL, DISPATCH_METHOD, &dispparams, NULL, NULL, NULL);
-todo_wine
+    ok_ole_success(hr, IDispatch_Invoke);
+    SysFreeString(V_BSTR(&vararg[1]));
+    SysFreeString(V_BSTR(&vararg[0]));
+
+    /* call VarArg_Ref_Run */
+    VariantInit(&vararg[1]);
+    V_VT(&vararg[1]) = VT_BSTR;
+    V_BSTR(&vararg[1]) = SysAllocString(szCat);
+    VariantInit(&vararg[0]);
+    V_VT(&vararg[0]) = VT_BSTR;
+    V_BSTR(&vararg[0]) = SysAllocString(szSuperman);
+    dispparams.cNamedArgs = 0;
+    dispparams.cArgs = 2;
+    dispparams.rgdispidNamedArgs = NULL;
+    dispparams.rgvarg = vararg;
+    hr = IDispatch_Invoke(pDispatch, DISPID_TM_VARARG_REF_RUN, &IID_NULL, LOCALE_NEUTRAL, DISPATCH_METHOD, &dispparams, NULL, NULL, NULL);
     ok_ole_success(hr, IDispatch_Invoke);
     SysFreeString(V_BSTR(&vararg[1]));
     SysFreeString(V_BSTR(&vararg[0]));

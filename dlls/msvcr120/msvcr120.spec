@@ -291,6 +291,7 @@
 @ stub -arch=i386 ??1_SpinLock@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??1_SpinLock@details@Concurrency@@QEAA@XZ
 @ stub -arch=i386 ??1_StructuredTaskCollection@details@Concurrency@@QAE@XZ
+@ stub -arch=win64 ??1_StructuredTaskCollection@details@Concurrency@@QEAA@XZ
 @ stub -arch=arm ??1_TaskCollection@details@Concurrency@@QAA@XZ
 @ stub -arch=i386 ??1_TaskCollection@details@Concurrency@@QAE@XZ
 @ stub -arch=win64 ??1_TaskCollection@details@Concurrency@@QEAA@XZ
@@ -398,7 +399,8 @@
 @ stub -arch=win32 ?Alloc@Concurrency@@YAPAXI@Z
 @ stub -arch=win64 ?Alloc@Concurrency@@YAPEAX_K@Z
 @ stub ?Block@Context@Concurrency@@SAXXZ
-@ stub ?CaptureCallstack@platform@details@Concurrency@@YAIPAPAXII@Z
+@ stub -arch=win32 ?CaptureCallstack@platform@details@Concurrency@@YAIPAPAXII@Z
+@ stub -arch=win64 ?CaptureCallstack@platform@details@Concurrency@@YA_KPEAPEAX_K1@Z
 @ stub -arch=win32 ?Create@CurrentScheduler@Concurrency@@SAXABVSchedulerPolicy@2@@Z
 @ stub -arch=win64 ?Create@CurrentScheduler@Concurrency@@SAXAEBVSchedulerPolicy@2@@Z
 @ stub -arch=win32 ?Create@Scheduler@Concurrency@@SAPAV12@ABVSchedulerPolicy@2@@Z
@@ -857,7 +859,7 @@
 @ stdcall -arch=x86_64 __C_specific_handler(ptr long ptr ptr) ntdll.__C_specific_handler
 @ cdecl -arch=i386,x86_64,arm __CppXcptFilter(long ptr)
 @ cdecl -arch=i386,x86_64,arm __CxxDetectRethrow(ptr)
-@ stub __CxxExceptionFilter
+@ cdecl -arch=i386,x86_64,arm __CxxExceptionFilter(ptr ptr long ptr)
 @ cdecl -arch=i386,x86_64,arm -norelay __CxxFrameHandler(ptr ptr ptr ptr)
 @ cdecl -arch=i386,x86_64,arm -norelay __CxxFrameHandler2(ptr ptr ptr ptr) __CxxFrameHandler
 @ cdecl -arch=i386,x86_64,arm -norelay __CxxFrameHandler3(ptr ptr ptr ptr) __CxxFrameHandler
@@ -1637,6 +1639,7 @@
 @ stdcall -arch=i386 _seh_longjmp_unwind4(ptr)
 @ stdcall -arch=i386 _seh_longjmp_unwind(ptr)
 @ cdecl -arch=i386 _set_SSE2_enable(long) MSVCRT__set_SSE2_enable
+@ stub -arch=win64 _set_FMA3_enable
 @ cdecl _set_abort_behavior(long long) MSVCRT__set_abort_behavior
 @ cdecl _set_controlfp(long long)
 @ cdecl _set_doserrno(long)
@@ -1905,9 +1908,9 @@
 @ cdecl _wcsupr_s_l(wstr long ptr) MSVCRT__wcsupr_s_l
 @ cdecl _wcsxfrm_l(ptr wstr long ptr) MSVCRT__wcsxfrm_l
 @ cdecl _wctime32(ptr) MSVCRT__wctime32
-@ stub _wctime32_s
+@ cdecl _wctime32_s(ptr long ptr) MSVCRT__wctime32_s
 @ cdecl _wctime64(ptr) MSVCRT__wctime64
-@ stub _wctime64_s
+@ cdecl _wctime64_s(ptr long ptr) MSVCRT__wctime64_s
 @ cdecl _wctomb_l(ptr long ptr) MSVCRT__wctomb_l
 @ cdecl _wctomb_s_l(ptr ptr long long ptr) MSVCRT__wctomb_s_l
 # extern _wctype
@@ -2167,9 +2170,9 @@
 @ cdecl fmax(double double) MSVCR120_fmax
 @ cdecl fmaxf(float float) MSVCR120_fmaxf
 @ cdecl fmaxl(double double) MSVCR120_fmax
-@ stub fmin
-@ stub fminf
-@ stub fminl
+@ cdecl fmin(double double) MSVCR120_fmin
+@ cdecl fminf(float float) MSVCR120_fminf
+@ cdecl fminl(double double) MSVCR120_fmin
 @ cdecl fmod(double double) MSVCRT_fmod
 @ cdecl -arch=arm,x86_64 fmodf(float float) MSVCRT_fmodf
 @ cdecl fopen(str str) MSVCRT_fopen

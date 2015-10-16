@@ -254,7 +254,7 @@ static void test_OpenRequest (void)
     SetLastError(0xdeadbeef);
     ret = WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, NULL, 0, 0, 0);
     err = GetLastError();
-    if (!ret && err == ERROR_WINHTTP_CANNOT_CONNECT)
+    if (!ret && (err == ERROR_WINHTTP_CANNOT_CONNECT || err == ERROR_WINHTTP_TIMEOUT))
     {
         skip("Connection failed, skipping.\n");
         goto done;
@@ -280,6 +280,7 @@ static void test_empty_headers_param(void)
 {
     static const WCHAR empty[]  = {0};
     HINTERNET ses, con, req;
+    DWORD err;
     BOOL ret;
 
     ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
@@ -292,7 +293,8 @@ static void test_empty_headers_param(void)
     ok(req != NULL, "failed to open a request %u\n", GetLastError());
 
     ret = WinHttpSendRequest(req, empty, 0, NULL, 0, 0, 0);
-    if (!ret && GetLastError() == ERROR_WINHTTP_CANNOT_CONNECT)
+    err = GetLastError();
+    if (!ret && (err == ERROR_WINHTTP_CANNOT_CONNECT || err == ERROR_WINHTTP_TIMEOUT))
     {
         skip("connection failed, skipping\n");
         goto done;
@@ -315,7 +317,7 @@ static void test_SendRequest (void)
     static CHAR post_data[] = "mode=Test";
     static const char test_post[] = "mode => Test\0\n";
     HINTERNET session, request, connection;
-    DWORD header_len, optional_len, total_len, bytes_rw, size;
+    DWORD header_len, optional_len, total_len, bytes_rw, size, err;
     DWORD_PTR context;
     BOOL ret;
     CHAR buffer[256];
@@ -348,7 +350,8 @@ static void test_SendRequest (void)
 
     context++;
     ret = WinHttpSendRequest(request, content_type, header_len, post_data, optional_len, total_len, context);
-    if (!ret && GetLastError() == ERROR_WINHTTP_CANNOT_CONNECT)
+    err = GetLastError();
+    if (!ret && (err == ERROR_WINHTTP_CANNOT_CONNECT || err == ERROR_WINHTTP_TIMEOUT))
     {
         skip("connection failed, skipping\n");
         goto done;
@@ -486,7 +489,8 @@ static void test_WinHttpAddHeaders(void)
     static const WCHAR test_header_begin[] =
         {'P','O','S','T',' ','/','p','o','s','t','t','e','s','t','.','p','h','p',' ','H','T','T','P','/','1'};
     static const WCHAR full_path_test_header_begin[] =
-        {'P','O','S','T',' ','h','t','t','p',':','/','/','t','e','s','t','.','w','i','n','e','h','q','.','o','r','g',':','8','0','/','p','o','s','t','.','p','h','p',' ','H','T','T','P','/','1'};
+        {'P','O','S','T',' ','h','t','t','p',':','/','/','t','e','s','t','.','w','i','n','e','h','q','.','o','r','g',':','8','0',
+         '/','p','o','s','t','t','e','s','t','.','p','h','p',' ','H','T','T','P','/','1'};
     static const WCHAR test_header_end[] = {'\r','\n','\r','\n',0};
     static const WCHAR test_header_name[] = {'W','a','r','n','i','n','g',0};
     static const WCHAR test_header_name2[] = {'n','a','m','e',0};
@@ -967,7 +971,7 @@ static void CALLBACK cert_error(HINTERNET handle, DWORD_PTR ctx, DWORD status, L
 static void test_secure_connection(void)
 {
     HINTERNET ses, con, req;
-    DWORD size, status, policy, bitness, read_size;
+    DWORD size, status, policy, bitness, read_size, err;
     BOOL ret;
     CERT_CONTEXT *cert;
     WINHTTP_CERTIFICATE_INFO info;
@@ -988,7 +992,8 @@ static void test_secure_connection(void)
     ok(req != NULL, "failed to open a request %u\n", GetLastError());
 
     ret = WinHttpSendRequest(req, NULL, 0, NULL, 0, 0, 0);
-    if (!ret && GetLastError() == ERROR_WINHTTP_CANNOT_CONNECT)
+    err = GetLastError();
+    if (!ret && (err == ERROR_WINHTTP_CANNOT_CONNECT || err == ERROR_WINHTTP_TIMEOUT))
     {
         skip("Connection failed, skipping.\n");
         goto cleanup;
@@ -1010,7 +1015,9 @@ static void test_secure_connection(void)
     WinHttpSetStatusCallback(req, cert_error, WINHTTP_CALLBACK_STATUS_SECURE_FAILURE, 0);
 
     ret = WinHttpSendRequest(req, NULL, 0, NULL, 0, 0, 0);
-    if (!ret && (GetLastError() == ERROR_WINHTTP_SECURE_FAILURE || GetLastError() == ERROR_WINHTTP_CANNOT_CONNECT))
+    err = GetLastError();
+    if (!ret && (err == ERROR_WINHTTP_SECURE_FAILURE || err == ERROR_WINHTTP_CANNOT_CONNECT ||
+                 err == ERROR_WINHTTP_TIMEOUT))
     {
         skip("secure connection failed, skipping remaining secure tests\n");
         goto cleanup;
@@ -1088,7 +1095,8 @@ static void test_request_parameter_defaults(void)
     ok(req != NULL, "failed to open a request %u\n", GetLastError());
 
     ret = WinHttpSendRequest(req, NULL, 0, NULL, 0, 0, 0);
-    if (!ret && GetLastError() == ERROR_WINHTTP_CANNOT_CONNECT)
+    error = GetLastError();
+    if (!ret && (error == ERROR_WINHTTP_CANNOT_CONNECT || error == ERROR_WINHTTP_TIMEOUT))
     {
         skip("connection failed, skipping\n");
         goto done;
@@ -1115,7 +1123,8 @@ static void test_request_parameter_defaults(void)
     ok(req != NULL, "failed to open a request %u\n", GetLastError());
 
     ret = WinHttpSendRequest(req, NULL, 0, NULL, 0, 0, 0);
-    if (!ret && (GetLastError() == ERROR_WINHTTP_CANNOT_CONNECT || GetLastError() == ERROR_WINHTTP_TIMEOUT))
+    error = GetLastError();
+    if (!ret && (error == ERROR_WINHTTP_CANNOT_CONNECT || error == ERROR_WINHTTP_TIMEOUT))
     {
         skip("connection failed, skipping\n");
         goto done;
@@ -2138,7 +2147,7 @@ static void test_basic_request(int port, const WCHAR *verb, const WCHAR *path)
     DWORD count, status, size, error, supported, first, target;
     BOOL ret;
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2206,7 +2215,7 @@ static void test_basic_authentication(int port)
     DWORD status, size, error, supported, first, target;
     BOOL ret;
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2343,7 +2352,7 @@ static void test_basic_authentication(int port)
 
     /* credentials set with WinHttpSetCredentials take precedence over those set through options */
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2377,7 +2386,7 @@ static void test_basic_authentication(int port)
     WinHttpCloseHandle(con);
     WinHttpCloseHandle(ses);
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2419,7 +2428,7 @@ static void test_no_headers(int port)
     DWORD error;
     BOOL ret;
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2456,7 +2465,7 @@ static void test_no_content(int port)
     DWORD size, len = sizeof(buf), bytes_read, status;
     BOOL ret;
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2541,7 +2550,7 @@ static void test_head_request(int port)
     DWORD size, len, count, status;
     BOOL ret;
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2606,7 +2615,7 @@ static void test_not_modified(int port)
     GetSystemTime(&st);
     WinHttpTimeFromSystemTime(&st, &today[sizeof(ifmodifiedW)/sizeof(WCHAR)]);
 
-    session = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+    session = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY,
         WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     ok(session != NULL, "WinHttpOpen failed: %u\n", GetLastError());
 
@@ -2660,7 +2669,7 @@ static void test_bad_header( int port )
     DWORD index, len;
     BOOL ret;
 
-    ses = WinHttpOpen( test_useragent, 0, NULL, NULL, 0 );
+    ses = WinHttpOpen( test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0 );
     ok( ses != NULL, "failed to open session %u\n", GetLastError() );
 
     con = WinHttpConnect( ses, localhostW, port, 0 );
@@ -2692,7 +2701,7 @@ static void test_multiple_reads(int port)
     DWORD total_len = 0;
     BOOL ret;
 
-    ses = WinHttpOpen(test_useragent, 0, NULL, NULL, 0);
+    ses = WinHttpOpen(test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0);
     ok(ses != NULL, "failed to open session %u\n", GetLastError());
 
     con = WinHttpConnect(ses, localhostW, port, 0);
@@ -2745,7 +2754,7 @@ static void test_cookies( int port )
     DWORD status, size;
     BOOL ret;
 
-    ses = WinHttpOpen( test_useragent, 0, NULL, NULL, 0 );
+    ses = WinHttpOpen( test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0 );
     ok( ses != NULL, "failed to open session %u\n", GetLastError() );
 
     con = WinHttpConnect( ses, localhostW, port, 0 );
@@ -2825,7 +2834,7 @@ static void test_cookies( int port )
     WinHttpCloseHandle( con );
     WinHttpCloseHandle( ses );
 
-    ses = WinHttpOpen( test_useragent, 0, NULL, NULL, 0 );
+    ses = WinHttpOpen( test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0 );
     ok( ses != NULL, "failed to open session %u\n", GetLastError() );
 
     con = WinHttpConnect( ses, localhostW, port, 0 );
@@ -2859,7 +2868,7 @@ static void test_connection_info( int port )
     DWORD size, error;
     BOOL ret;
 
-    ses = WinHttpOpen( test_useragent, 0, NULL, NULL, 0 );
+    ses = WinHttpOpen( test_useragent, WINHTTP_ACCESS_TYPE_NO_PROXY, NULL, NULL, 0 );
     ok( ses != NULL, "failed to open session %u\n", GetLastError() );
 
     con = WinHttpConnect( ses, localhostW, port, 0 );
@@ -3560,7 +3569,6 @@ static void request_get_property(IWinHttpRequest *request, int property, VARIANT
     VariantInit(ret);
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0,
                                 DISPATCH_PROPERTYGET, &params, ret, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 }
 
@@ -3605,9 +3613,7 @@ static void test_IWinHttpRequest_Invoke(void)
     ok(id == DISPID_HTTPREQUEST_OPTION, "expected DISPID_HTTPREQUEST_OPTION, got %u\n", id);
 
     request_get_property(request, WinHttpRequestOption_URLCodePage, &ret);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == CP_UTF8, "expected CP_UTF8, got %d\n", V_I4(&ret));
 
     memset(&params, 0, sizeof(params));
@@ -3621,13 +3627,10 @@ todo_wine
     VariantInit(&ret);
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0,
                                 DISPATCH_METHOD, &params, NULL, NULL, &err);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     request_get_property(request, WinHttpRequestOption_URLCodePage, &ret);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == CP_UTF8, "expected CP_UTF8, got %d\n", V_I4(&ret));
 
     memset(&params, 0, sizeof(params));
@@ -3641,13 +3644,10 @@ todo_wine
     VariantInit(&ret);
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0,
                                 DISPATCH_METHOD | DISPATCH_PROPERTYPUT, &params, NULL, NULL, &err);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     request_get_property(request, WinHttpRequestOption_URLCodePage, &ret);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == CP_UTF8, "expected CP_UTF8, got %d\n", V_I4(&ret));
 
     memset(&params, 0, sizeof(params));
@@ -3661,13 +3661,10 @@ todo_wine
     VariantInit(&ret);
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0,
                                 DISPATCH_PROPERTYPUT, &params, NULL, NULL, &err);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     request_get_property(request, WinHttpRequestOption_URLCodePage, &ret);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == 1252, "expected 1252, got %d\n", V_I4(&ret));
 
     memset(&params, 0, sizeof(params));
@@ -3680,39 +3677,29 @@ todo_wine
     V_VT(&arg[1]) = VT_R8;
     V_R8(&arg[1]) = 2.0; /* WinHttpRequestOption_URLCodePage */
     hr = IWinHttpRequest_Invoke(request, id, &IID_NULL, 0, DISPATCH_METHOD, &params, NULL, NULL, &err);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     request_get_property(request, WinHttpRequestOption_URLCodePage, &ret);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == 1252, "expected 1252, got %d\n", V_I4(&ret));
 
     VariantInit(&ret);
     hr = IWinHttpRequest_Invoke(request, id, &IID_NULL, 0, DISPATCH_METHOD, &params, &ret, NULL, &err);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     request_get_property(request, WinHttpRequestOption_URLCodePage, &ret);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == 1252, "expected 1252, got %d\n", V_I4(&ret));
 
     VariantInit(&ret);
     hr = IWinHttpRequest_Invoke(request, id, &IID_NULL, 0, DISPATCH_PROPERTYPUT, &params, &ret, NULL, &err);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     request_get_property(request, WinHttpRequestOption_URLCodePage, &ret);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == CP_UTF8, "expected CP_UTF8, got %d\n", V_I4(&ret));
 
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, DISPATCH_PROPERTYPUT, &params, NULL, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     hr = IWinHttpRequest_Invoke(request, 255, &IID_NULL, 0, DISPATCH_PROPERTYPUT, &params, NULL, NULL, NULL);
@@ -3720,7 +3707,6 @@ todo_wine
 
     VariantInit(&ret);
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_IUnknown, 0, DISPATCH_PROPERTYPUT, &params, &ret, NULL, &err);
-todo_wine
     ok(hr == DISP_E_UNKNOWNINTERFACE, "error %#x\n", hr);
 
     VariantInit(&ret);
@@ -3729,7 +3715,6 @@ if (0) /* crashes */
 
     params.cArgs = 1;
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, DISPATCH_PROPERTYPUT, &params, &ret, NULL, &err);
-todo_wine
     ok(hr == DISP_E_TYPEMISMATCH, "error %#x\n", hr);
 
     VariantInit(&arg[2]);
@@ -3746,48 +3731,36 @@ todo_wine
     V_VT(&arg[0]) = VT_I4;
     V_I4(&arg[0]) = WinHttpRequestOption_URLCodePage;
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, DISPATCH_PROPERTYGET, &params, NULL, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     V_VT(&ret) = 0xdead;
     V_I4(&ret) = 0xbeef;
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, DISPATCH_METHOD|DISPATCH_PROPERTYGET, &params, &ret, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == CP_UTF8, "expected CP_UTF8, got %d\n", V_I4(&ret));
 
     V_VT(&ret) = 0xdead;
     V_I4(&ret) = 0xbeef;
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, DISPATCH_METHOD, &params, &ret, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
-todo_wine
     ok(V_VT(&ret) == VT_I4, "expected VT_I4, got %d\n", V_VT(&ret));
-todo_wine
     ok(V_I4(&ret) == CP_UTF8, "expected CP_UTF8, got %d\n", V_I4(&ret));
 
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, DISPATCH_METHOD|DISPATCH_PROPERTYGET, &params, NULL, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     V_VT(&ret) = 0xdead;
     V_I4(&ret) = 0xbeef;
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, 0, &params, &ret, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
-todo_wine
     ok(V_VT(&ret) == VT_EMPTY, "expected VT_EMPTY, got %d\n", V_VT(&ret));
     ok(V_I4(&ret) == 0xbeef || V_I4(&ret) == 0 /* Win8 */, "expected 0xdead, got %d\n", V_I4(&ret));
 
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, 0, &params, NULL, NULL, NULL);
-todo_wine
     ok(hr == S_OK, "error %#x\n", hr);
 
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_IUnknown, 0, DISPATCH_PROPERTYGET, &params, NULL, NULL, NULL);
-todo_wine
     ok(hr == DISP_E_UNKNOWNINTERFACE, "error %#x\n", hr);
 
     params.cArgs = 2;
@@ -3797,10 +3770,19 @@ todo_wine
 
     params.cArgs = 0;
     hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_OPTION, &IID_NULL, 0, DISPATCH_PROPERTYGET, &params, NULL, NULL, NULL);
-todo_wine
     ok(hr == DISP_E_PARAMNOTFOUND, "error %#x\n", hr);
 
     SysFreeString(utf8);
+
+    params.cArgs = 1;
+    V_VT(&arg[0]) = VT_I4;
+    V_I4(&arg[0]) = AutoLogonPolicy_Never;
+    VariantInit(&ret);
+    hr = IWinHttpRequest_Invoke(request, DISPID_HTTPREQUEST_SETAUTOLOGONPOLICY, &IID_NULL, 0,
+                                DISPATCH_METHOD, &params, &ret, NULL, NULL);
+todo_wine
+    ok(hr == S_OK, "error %#x\n", hr);
+
     IWinHttpRequest_Release(request);
 
     CoUninitialize();
@@ -4008,7 +3990,7 @@ static void test_chunked_read(void)
     static const WCHAR verb[] = {'/','t','e','s','t','c','h','u','n','k','e','d',0};
     static const WCHAR chunked[] = {'c','h','u','n','k','e','d',0};
     WCHAR header[32];
-    DWORD len;
+    DWORD len, err;
     HINTERNET ses, con = NULL, req = NULL;
     BOOL ret;
 
@@ -4027,7 +4009,8 @@ static void test_chunked_read(void)
     if (!req) goto done;
 
     ret = WinHttpSendRequest( req, NULL, 0, NULL, 0, 0, 0 );
-    if (!ret && GetLastError() == ERROR_WINHTTP_CANNOT_CONNECT)
+    err = GetLastError();
+    if (!ret && (err == ERROR_WINHTTP_CANNOT_CONNECT || err == ERROR_WINHTTP_TIMEOUT))
     {
         skip("connection failed, skipping\n");
         goto done;

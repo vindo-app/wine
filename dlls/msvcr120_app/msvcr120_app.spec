@@ -853,7 +853,7 @@
 @ stdcall -arch=x86_64 __C_specific_handler(ptr long ptr ptr) msvcr120.__C_specific_handler
 @ cdecl -arch=i386,x86_64,arm __CppXcptFilter(long ptr) msvcr120.__CppXcptFilter
 @ cdecl -arch=i386,x86_64,arm __CxxDetectRethrow(ptr) msvcr120.__CxxDetectRethrow
-@ stub __CxxExceptionFilter
+@ cdecl -arch=i386,x86_64,arm __CxxExceptionFilter(ptr ptr long ptr) msvcr120.__CxxExceptionFilter
 @ cdecl -arch=i386,x86_64,arm -norelay __CxxFrameHandler(ptr ptr ptr ptr) msvcr120.__CxxFrameHandler
 @ cdecl -arch=i386,x86_64,arm -norelay __CxxFrameHandler2(ptr ptr ptr ptr) msvcr120.__CxxFrameHandler2
 @ cdecl -arch=i386,x86_64,arm -norelay __CxxFrameHandler3(ptr ptr ptr ptr) msvcr120.__CxxFrameHandler3
@@ -1601,9 +1601,9 @@
 @ cdecl _wcsupr_s_l(wstr long ptr) msvcr120._wcsupr_s_l
 @ cdecl _wcsxfrm_l(ptr wstr long ptr) msvcr120._wcsxfrm_l
 @ cdecl _wctime32(ptr) msvcr120._wctime32
-@ stub _wctime32_s
+@ cdecl _wctime32_s(ptr long ptr) msvcr120._wctime32_s
 @ cdecl _wctime64(ptr) msvcr120._wctime64
-@ stub _wctime64_s
+@ cdecl _wctime64_s(ptr long ptr) msvcr120._wctime64_s
 @ cdecl _wctomb_l(ptr long ptr) msvcr120._wctomb_l
 @ cdecl _wctomb_s_l(ptr ptr long long ptr) msvcr120._wctomb_s_l
 # extern _wctype
@@ -1836,9 +1836,9 @@
 @ cdecl fmax(double double) msvcr120.fmax
 @ cdecl fmaxf(float float) msvcr120.fmaxf
 @ cdecl fmaxl(double double) msvcr120.fmaxl
-@ stub fmin
-@ stub fminf
-@ stub fminl
+@ cdecl fmin(double double) msvcr120.fmin
+@ cdecl fminf(float float) msvcr120.fminf
+@ cdecl fminl(double double) msvcr120.fminl
 @ cdecl fmod(double double) msvcr120.fmod
 @ cdecl -arch=arm,x86_64 fmodf(float float) msvcr120.fmodf
 @ cdecl fopen(str str) msvcr120.fopen
