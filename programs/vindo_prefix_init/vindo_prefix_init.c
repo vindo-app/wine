@@ -14,8 +14,12 @@
 #include "wine/library.h"
 #include "wine/unicode.h"
 
+void run_installers();
+void run_installer(LPCWSTR installer, LPCWSTR installers_dir);
 void install_dll(LPCWSTR dll, LPCWSTR dll_dir);
 const WCHAR *get_dll_dir();
+const WCHAR *get_installers_dir();
+const WCHAR *get_data_dir();
 
 #define TRY(something) if (!(something)) fail()
 void fail();
@@ -43,8 +47,51 @@ int wmain() {
     
     if (GetLastError() != ERROR_NO_MORE_FILES) fail();
 
-    dealloc(dll_dir);
+    dealloc(search_pattern);
+    dealloc((LPVOID) dll_dir);
+
+    run_installers();
+
     return 0;
+}
+
+void run_installers() {
+    static const WCHAR star_dot_exe[] = {'*','.','e','x','e',0};
+    LPCWSTR installers_dir = get_installers_dir();
+    LPWSTR search_pattern = concat(installers_dir, star_dot_exe);
+    WIN32_FIND_DATAW find_data;
+    HANDLE find_handle;
+
+    if ((find_handle = FindFirstFileW(search_pattern, &find_data)) == INVALID_HANDLE_VALUE) fail();
+
+    do {
+        run_installer(find_data.cFileName, installers_dir);
+    } while (FindNextFileW(find_handle, &find_data) != 0);
+    
+    if (GetLastError() != ERROR_NO_MORE_FILES) fail();
+
+    dealloc(search_pattern);
+    dealloc((LPVOID) installers_dir);
+}
+
+void run_installer(LPCWSTR installer, LPCWSTR installers_dir) {
+    WCHAR *installer_file = concat(installers_dir, installer);
+
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+
+    static WCHAR slash_q[] = {' ', '/','q',0};
+    WCHAR *argv = concat(installer, slash_q);
+
+    if (!CreateProcessW(installer_file, argv, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) fail();
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    dealloc((LPVOID) installer_file);
+    dealloc((LPVOID) argv);
 }
 
 void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
@@ -75,7 +122,7 @@ void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
 
     TRACE("loading dll %s\n", debugstr_w(dll));
     TRY(module = LoadLibraryExW(dst_file, 0, LOAD_WITH_ALTERED_SEARCH_PATH));
-    if (DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer")) {
+    if ((DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer"))) {
         result = DllRegisterServer();
         if (FAILED(result) && result != E_NOTIMPL) {
             ERR("in dll %s: %x\n", debugstr_w(dll), result);
@@ -90,8 +137,25 @@ void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
 
 
 const WCHAR *get_dll_dir() {
+    static const WCHAR slash_dlls[] = {'\\','d','l','l','s','\\',0};
+    
+    const WCHAR *data_dir = get_data_dir();
+    WCHAR *retval = concat(data_dir, slash_dlls);
+    dealloc((LPVOID) data_dir);
+    return retval;
+}
+
+const WCHAR *get_installers_dir() {
+    static const WCHAR slash_installers[] = {'\\','i','n','s','t','a','l','l','e','r','s','\\',0};
+
+    const WCHAR *data_dir = get_data_dir();
+    WCHAR *retval = concat(data_dir, slash_installers);
+    dealloc((LPVOID) data_dir);
+    return retval;
+}
+
+const WCHAR *get_data_dir() {
     const char *data_dir;
-    char *dll_dir;
 
     if (wine_get_data_dir() != NULL)
         data_dir = wine_get_data_dir();
@@ -104,14 +168,9 @@ const WCHAR *get_dll_dir() {
         }
     }
 
-    dll_dir = alloc(strlen(data_dir) + strlen("/dlls") + 1);
-    strcpy(dll_dir, data_dir);
-    strcat(dll_dir, "/dlls/");
-
-    const WCHAR *dos_dll_dir = wine_get_dos_file_name(dll_dir);
-    HeapFree(GetProcessHeap(), 0, dll_dir);
-    return dos_dll_dir;
+    return wine_get_dos_file_name(data_dir);
 }
+
 
 void fail() {
     char *msg;
