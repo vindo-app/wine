@@ -127,6 +127,8 @@ void override_dlls_from_file(LPCWSTR dlls_list, LPCWSTR dir) {
     char buf[32]; // We really don't need more room than that.
     while (TRUE) {
         if (!fgets(buf, 32, file)) {
+            if (feof(file))
+                break;
             ERR("reading list file failed, dammit\n");
         }
 
