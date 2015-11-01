@@ -131,6 +131,9 @@ void override_dlls_from_file(LPCWSTR dlls_list, LPCWSTR dir) {
                 break;
             ERR("reading list file failed, dammit\n");
         }
+        
+        // chomp the string
+        buf[strlen(buf) - 1] = '\0';
 
         const WCHAR *wide_buf = utf8_chars_to_wchars(buf);
 
