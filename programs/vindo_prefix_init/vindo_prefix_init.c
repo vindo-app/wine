@@ -130,7 +130,6 @@ void override_dlls_from_file(LPCWSTR dlls_list, LPCWSTR dir) {
             ERR("reading list file failed, dammit\n");
         }
 
-        *strrchr(buf, '.') = '\0';
         const WCHAR *wide_buf = utf8_chars_to_wchars(buf);
 
         TRY(!RegCreateKeyExW(HKEY_CURRENT_USER, dll_overrides, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &overrides_key, NULL));
