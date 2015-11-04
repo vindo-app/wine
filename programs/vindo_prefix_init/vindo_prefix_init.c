@@ -96,9 +96,10 @@ void run_installer(LPCWSTR installer, LPCWSTR installers_dir) {
     PROCESS_INFORMATION pi;
 
     static WCHAR slash_q[] = {' ', '/','q',0};
-    WCHAR *argv = concat(installer, slash_q);
+    WCHAR *argv = concat(installer_file, slash_q);
 
-    if (!CreateProcessW(installer_file, argv, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) fail();
+    TRACE("argv is %s", debugstr_w(argv));
+    if (!CreateProcessW(NULL, argv, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) fail();
 
     WaitForSingleObject(pi.hProcess, INFINITE);
 
