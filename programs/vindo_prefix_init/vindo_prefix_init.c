@@ -95,6 +95,9 @@ void run_installer(LPCWSTR installer, LPCWSTR installers_dir) {
     STARTUPINFOW si;
     PROCESS_INFORMATION pi;
 
+    si.cb = sizeof(si);
+    memset(&si, 0, sizeof(si));
+
     static WCHAR slash_q[] = {' ', '/','q',0};
     WCHAR *argv = concat(installer_file, slash_q);
 
