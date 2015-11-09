@@ -213,7 +213,7 @@ static NSString* WineLocalizedString(unsigned int stringID)
 
     - (void) transformProcessToForeground
     {
-        if ([NSApp activationPolicy] != NSApplicationActivationPolicyRegular)
+        if (!isBackground)
         {
             NSMenu* mainMenu;
             NSMenu* submenu;
@@ -221,8 +221,10 @@ static NSString* WineLocalizedString(unsigned int stringID)
             NSString* title;
             NSMenuItem* item;
 
-            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-            [NSApp activateIgnoringOtherApps:YES];
+            if (!getenv("VINDO_NO_UI")) {
+                [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+                [NSApp activateIgnoringOtherApps:YES];
+            }
 
             mainMenu = [[[NSMenu alloc] init] autorelease];
 
@@ -286,6 +288,8 @@ static NSString* WineLocalizedString(unsigned int stringID)
             [NSApp setWindowsMenu:submenu];
 
             [NSApp setApplicationIconImage:self.applicationIcon];
+
+            isBackground = YES;
         }
     }
 
