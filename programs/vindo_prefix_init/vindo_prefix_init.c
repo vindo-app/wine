@@ -101,8 +101,10 @@ void run_installer(LPCWSTR installer, LPCWSTR installers_dir) {
     static WCHAR slash_q[] = {' ', '/','q',0};
     WCHAR *argv = concat(installer_file, slash_q);
 
+    static WCHAR vindo_no_ui[] = {'V','I','N','D','O','_','N','O','_','U','I',0,0};
+
     TRACE("argv is %s", debugstr_w(argv));
-    if (!CreateProcessW(NULL, argv, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) fail();
+    if (!CreateProcessW(NULL, argv, NULL, NULL, FALSE, 0, vindo_no_ui, NULL, &si, &pi)) fail();
 
     WaitForSingleObject(pi.hProcess, INFINITE);
 
