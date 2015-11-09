@@ -201,7 +201,7 @@ int macdrv_err_on;
 
     - (void) transformProcessToForeground
     {
-        if ([NSApp activationPolicy] != NSApplicationActivationPolicyRegular)
+        if (!isBackground)
         {
             NSMenu* mainMenu;
             NSMenu* submenu;
@@ -209,8 +209,10 @@ int macdrv_err_on;
             NSString* title;
             NSMenuItem* item;
 
-            [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-            [NSApp activateIgnoringOtherApps:YES];
+            if (!getenv("VINDO_NO_UI")) {
+                [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+                [NSApp activateIgnoringOtherApps:YES];
+            }
 
             mainMenu = [[[NSMenu alloc] init] autorelease];
 
@@ -262,6 +264,8 @@ int macdrv_err_on;
             [NSApp setWindowsMenu:submenu];
 
             [NSApp setApplicationIconImage:self.applicationIcon];
+
+            isBackground = YES;
         }
     }
 

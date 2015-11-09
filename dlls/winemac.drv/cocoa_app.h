@@ -94,6 +94,8 @@ enum {
     BOOL beenActive;
 
     NSMutableSet* windowsBeingDragged;
+
+    BOOL isBackground;
 }
 
 @property (nonatomic) CGEventSourceKeyboardType keyboardType;
