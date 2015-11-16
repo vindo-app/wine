@@ -14,8 +14,15 @@
 #include "wine/library.h"
 #include "wine/unicode.h"
 
+void run_installers();
+void run_installer(LPCWSTR installer, LPCWSTR installers_dir);
+void override_dlls_from_file(LPCWSTR dll_list, LPCWSTR installers_dir);
 void install_dll(LPCWSTR dll, LPCWSTR dll_dir);
 const WCHAR *get_dll_dir();
+const WCHAR *get_installers_dir();
+const WCHAR *get_data_dir();
+
+static WCHAR* utf8_chars_to_wchars(LPCSTR string);
 
 #define TRY(something) if (!(something)) fail()
 void fail();
@@ -43,8 +50,106 @@ int wmain() {
     
     if (GetLastError() != ERROR_NO_MORE_FILES) fail();
 
-    dealloc(dll_dir);
+    dealloc(search_pattern);
+    dealloc((LPVOID) dll_dir);
+
+    run_installers();
+
     return 0;
+}
+
+void run_installers() {
+    static const WCHAR star_dot_exe[] = {'*','.','e','x','e',0};
+    static const WCHAR star_dot_dlls[] = {'*','.','d','l','l','s',0};
+    LPCWSTR installers_dir = get_installers_dir();
+    LPWSTR search_pattern = concat(installers_dir, star_dot_exe);
+    WIN32_FIND_DATAW find_data;
+    HANDLE find_handle;
+
+    if ((find_handle = FindFirstFileW(search_pattern, &find_data)) == INVALID_HANDLE_VALUE) fail();
+
+    do {
+        run_installer(find_data.cFileName, installers_dir);
+    } while (FindNextFileW(find_handle, &find_data) != 0);
+    
+    if (GetLastError() != ERROR_NO_MORE_FILES) fail();
+
+    dealloc(search_pattern);
+    search_pattern = concat(installers_dir, star_dot_dlls);
+
+    if ((find_handle = FindFirstFileW(search_pattern, &find_data)) == INVALID_HANDLE_VALUE) fail();
+
+    do {
+        override_dlls_from_file(find_data.cFileName, installers_dir);
+    } while (FindNextFileW(find_handle, &find_data) != 0);
+    
+    if (GetLastError() != ERROR_NO_MORE_FILES) fail();
+
+    dealloc(search_pattern);
+    dealloc((LPVOID) installers_dir);
+}
+
+void run_installer(LPCWSTR installer, LPCWSTR installers_dir) {
+    const WCHAR *installer_file = concat(installers_dir, installer);
+
+    STARTUPINFOW si;
+    PROCESS_INFORMATION pi;
+
+    si.cb = sizeof(si);
+    memset(&si, 0, sizeof(si));
+
+    static WCHAR slash_q[] = {' ', '/','q',0};
+    WCHAR *argv = concat(installer_file, slash_q);
+
+    setenv("VINDO_NO_UI", "", FALSE);
+    if (!CreateProcessW(NULL, argv, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi)) fail();
+    unsetenv("VINDO_NO_UI");
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+
+    dealloc((LPVOID) installer_file);
+    dealloc(argv);
+}
+
+void override_dlls_from_file(LPCWSTR dlls_list, LPCWSTR dir) {
+    static const WCHAR dll_overrides[] = {'S','o','f','t','w','a','r','e','\\','W','i','n','e','\\','D','l','l','O','v','e','r','r','i','d','e','s',0};
+    static const WCHAR native[] = {'n','a','t','i','v','e',0};
+    HKEY overrides_key;
+
+    const WCHAR *list_file = concat(dir, dlls_list);
+    const char *list_file_unix = wine_get_unix_file_name(list_file);
+    dealloc((LPVOID) list_file);
+    
+    FILE *file = fopen(list_file_unix, "r");
+    if (file == NULL) {
+        perror("opening list file failed");
+        ExitProcess(1);
+    }
+
+    char buf[32]; // We really don't need more room than that.
+    while (TRUE) {
+        if (!fgets(buf, 32, file)) {
+            if (feof(file))
+                break;
+            ERR("reading list file failed, dammit\n");
+        }
+        
+        // chomp the string
+        buf[strlen(buf) - 1] = '\0';
+
+        const WCHAR *wide_buf = utf8_chars_to_wchars(buf);
+
+        TRY(!RegCreateKeyExW(HKEY_CURRENT_USER, dll_overrides, 0, NULL, 0, KEY_ALL_ACCESS, NULL, &overrides_key, NULL));
+        TRY(!RegSetValueExW(overrides_key, wide_buf, 0, REG_SZ, (BYTE *) native, sizeof(native)));
+        TRY(!RegCloseKey(overrides_key));
+
+        dealloc((LPVOID) wide_buf);
+    }
+
+    dealloc((LPVOID) list_file_unix);
 }
 
 void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
@@ -75,7 +180,7 @@ void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
 
     TRACE("loading dll %s\n", debugstr_w(dll));
     TRY(module = LoadLibraryExW(dst_file, 0, LOAD_WITH_ALTERED_SEARCH_PATH));
-    if (DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer")) {
+    if ((DllRegisterServer = (typeof(DllRegisterServer)) GetProcAddress(module, "DllRegisterServer"))) {
         result = DllRegisterServer();
         if (FAILED(result) && result != E_NOTIMPL) {
             ERR("in dll %s: %x\n", debugstr_w(dll), result);
@@ -90,8 +195,25 @@ void install_dll(LPCWSTR dll, LPCWSTR dll_dir) {
 
 
 const WCHAR *get_dll_dir() {
+    static const WCHAR slash_dlls[] = {'\\','d','l','l','s','\\',0};
+    
+    const WCHAR *data_dir = get_data_dir();
+    WCHAR *retval = concat(data_dir, slash_dlls);
+    dealloc((LPVOID) data_dir);
+    return retval;
+}
+
+const WCHAR *get_installers_dir() {
+    static const WCHAR slash_installers[] = {'\\','i','n','s','t','a','l','l','e','r','s','\\',0};
+
+    const WCHAR *data_dir = get_data_dir();
+    WCHAR *retval = concat(data_dir, slash_installers);
+    dealloc((LPVOID) data_dir);
+    return retval;
+}
+
+const WCHAR *get_data_dir() {
     const char *data_dir;
-    char *dll_dir;
 
     if (wine_get_data_dir() != NULL)
         data_dir = wine_get_data_dir();
@@ -104,14 +226,9 @@ const WCHAR *get_dll_dir() {
         }
     }
 
-    dll_dir = alloc(strlen(data_dir) + strlen("/dlls") + 1);
-    strcpy(dll_dir, data_dir);
-    strcat(dll_dir, "/dlls/");
-
-    const WCHAR *dos_dll_dir = wine_get_dos_file_name(dll_dir);
-    HeapFree(GetProcessHeap(), 0, dll_dir);
-    return dos_dll_dir;
+    return wine_get_dos_file_name(data_dir);
 }
+
 
 void fail() {
     char *msg;
@@ -156,3 +273,16 @@ LPVOID alloc(SIZE_T size) {
 void dealloc(const LPVOID memory) {
     HeapFree(GetProcessHeap(), 0, (LPVOID) memory);
 }
+
+// Copied from winemenubuilder. Don't know where else to put it.
+static WCHAR* utf8_chars_to_wchars(LPCSTR string)
+{
+    WCHAR *ret;
+    INT size = MultiByteToWideChar(CP_UTF8, 0, string, -1, NULL, 0);
+    ret = HeapAlloc(GetProcessHeap(), 0, size * sizeof(WCHAR));
+    if (ret)
+        MultiByteToWideChar(CP_UTF8, 0, string, -1, ret, size);
+    return ret;
+}
+
+
