@@ -2262,7 +2262,7 @@ cleanup:
 
 static BOOL InvokeShellLinkerForURL( IUniformResourceLocatorW *url, LPCWSTR link, BOOL bWait )
 {
-    char *link_name = NULL, *icon_name = NULL;
+    char *link_name = NULL;
     DWORD csidl = -1;
     LPWSTR urlPath = NULL;
     char *escaped_urlPath = NULL;
@@ -2351,8 +2351,6 @@ static BOOL InvokeShellLinkerForURL( IUniformResourceLocatorW *url, LPCWSTR link
                     }
                     has_icon = TRUE;
                     icon_worked = extract_icon( pv[0].u.pwszVal, pv[1].u.iVal, native_identifier, programs_dir, bWait );
-
-                    WINE_TRACE("URL icon path: %s icon index: %d icon name: %s\n", wine_dbgstr_w(pv[0].u.pwszVal), pv[1].u.iVal, icon_name);
                 }
                 PropVariantClear(&pv[0]);
                 PropVariantClear(&pv[1]);
@@ -2393,14 +2391,14 @@ static BOOL InvokeShellLinkerForURL( IUniformResourceLocatorW *url, LPCWSTR link
         location = heap_printf("%s/%s.desktop", xdg_desktop_dir, lastEntry);
         if (location)
         {
-            r = !write_desktop_entry(NULL, location, lastEntry, start_path, escaped_urlPath, NULL, NULL, icon_name);
+            r = !write_desktop_entry(NULL, location, lastEntry, start_path, escaped_urlPath, NULL, NULL, native_identifier);
             if (r == 0)
                 chmod(location, 0755);
             HeapFree(GetProcessHeap(), 0, location);
         }
     }
     else
-        r = !write_menu_entry(unix_link, link_name, start_path, escaped_urlPath, NULL, NULL, icon_name);
+        r = !write_menu_entry(unix_link, link_name, start_path, escaped_urlPath, NULL, NULL, native_identifier);
     ret = (r == 0);
     ReleaseSemaphore(hSem, 1, NULL);
 
