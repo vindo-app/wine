@@ -2405,7 +2405,6 @@ static BOOL InvokeShellLinkerForURL( IUniformResourceLocatorW *url, LPCWSTR link
 cleanup:
     if (hSem)
         CloseHandle(hSem);
-    HeapFree( GetProcessHeap(), 0, icon_name );
     HeapFree(GetProcessHeap(), 0, link_name);
     CoTaskMemFree( urlPath );
     HeapFree(GetProcessHeap(), 0, escaped_urlPath);
