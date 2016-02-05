@@ -1643,10 +1643,9 @@ static HKEY open_associations_reg_key(void)
     return NULL;
 }
 
-static BOOL has_association_changed(LPCWSTR extensionW, LPCWSTR progId,
+static BOOL has_association_changed(LPCWSTR progId,
     LPCSTR appName)
 {
-    static const WCHAR ProgIDW[] = {'P','r','o','g','I','D',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
     HKEY assocKey;
     BOOL ret;
@@ -1658,12 +1657,7 @@ static BOOL has_association_changed(LPCWSTR extensionW, LPCWSTR progId,
 
         ret = FALSE;
 
-        value = reg_get_valW(assocKey, extensionW, ProgIDW);
-        if (!value || strcmpW(value, progId))
-            ret = TRUE;
-        HeapFree(GetProcessHeap(), 0, value);
-
-        valueA = reg_get_val_utf8(assocKey, extensionW, AppNameW);
+        valueA = reg_get_val_utf8(assocKey, progId, AppNameW);
         if (!valueA || lstrcmpA(valueA, appName))
             ret = TRUE;
         HeapFree(GetProcessHeap(), 0, valueA);
@@ -1678,10 +1672,8 @@ static BOOL has_association_changed(LPCWSTR extensionW, LPCWSTR progId,
     return ret;
 }
 
-static void update_association(LPCWSTR extension, LPCWSTR progId,
-    LPCSTR appName, LPCSTR desktopFile)
+static void update_association(LPCWSTR progId, LPCSTR appName, LPCSTR desktopFile)
 {
-    static const WCHAR ProgIDW[] = {'P','r','o','g','I','D',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
     static const WCHAR DesktopFileW[] = {'D','e','s','k','t','o','p','F','i','l','e',0};
     HKEY assocKey = NULL;
@@ -1696,7 +1688,7 @@ static void update_association(LPCWSTR extension, LPCWSTR progId,
         goto done;
     }
 
-    if (RegCreateKeyW(assocKey, extension, &subkey) != ERROR_SUCCESS)
+    if (RegCreateKeyW(assocKey, progId, &subkey) != ERROR_SUCCESS)
     {
         WINE_ERR("could not create extension subkey\n");
         goto done;
@@ -1716,7 +1708,6 @@ static void update_association(LPCWSTR extension, LPCWSTR progId,
         goto done;
     }
 
-    RegSetValueExW(subkey, ProgIDW, 0, REG_SZ, (const BYTE*) progId, (lstrlenW(progId) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, AppNameW, 0, REG_SZ, (const BYTE*) appNameW, (lstrlenW(appNameW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, DesktopFileW, 0, REG_SZ, (const BYTE*) desktopFileW, (lstrlenW(desktopFileW) + 1) * sizeof(WCHAR));
 
@@ -1806,16 +1797,12 @@ static BOOL is_extension_blacklisted(LPCWSTR extension)
     return FALSE;
 }
 
-static BOOL write_association_entry(const char *desktopPath, const char *dot_extension,
-                                                const char *friendlyAppName,
+static BOOL write_association_entry(const char *desktopPath, struct list *ext_list,
+                                                const char *friendlyAppName, const char *friendlyDocName,
                                                 const char *progId, const char *command)
 {
     BOOL ret = FALSE;
     FILE *desktop;
-
-    WINE_TRACE("writing association for file type %s, friendlyAppName=%s, icon=%s to file %s\n",
-               wine_dbgstr_a(dot_extension), wine_dbgstr_a(friendlyAppName),
-               wine_dbgstr_a(progId), wine_dbgstr_a(desktopPath));
 
     desktop = fopen(desktopPath, "w");
     if (desktop)
@@ -1825,10 +1812,19 @@ static BOOL write_association_entry(const char *desktopPath, const char *dot_ext
         fprintf(desktop, "<plist version=\"1.0\">\n");
         fprintf(desktop, "<dict>\n");
 
-        fprintf(desktop, "    <key>Name</key>\n");
-        fprintf(desktop, "    <string>");
-        write_xml_text(desktop, friendlyAppName);
-        fprintf(desktop, "</string>\n");
+        if (friendlyAppName) {
+            fprintf(desktop, "    <key>AppName</key>\n");
+            fprintf(desktop, "    <string>");
+            write_xml_text(desktop, friendlyAppName);
+            fprintf(desktop, "</string>\n");
+        }
+
+        if (friendlyDocName) {
+            fprintf(desktop, "    <key>Name</key>\n");
+            fprintf(desktop, "    <string>");
+            write_xml_text(desktop, friendlyDocName);
+            fprintf(desktop, "</string>\n");
+        }
 
         fprintf(desktop, "    <key>Command</key>\n");
         fprintf(desktop, "    <string>");
@@ -1850,263 +1846,118 @@ static BOOL write_association_entry(const char *desktopPath, const char *dot_ext
     return ret;
 }
 
-//static void generate_association(WCHAR *extensionW) {
-//    static const WCHAR openW[] = {'o','p','e','n',0};
-//
-//    char *extensionA = NULL;
-//    WCHAR *commandW = NULL;
-//    char *commandA = NULL;
-//    WCHAR *executableW = NULL;
-//    WCHAR *friendlyDocNameW = NULL;
-//    char *friendlyDocNameA = NULL;
-//    WCHAR *iconW = NULL;
-//    char *iconA = NULL;
-//    WCHAR *contentTypeW = NULL;
-//    WCHAR *friendlyAppNameW = NULL;
-//    char *friendlyAppNameA = NULL;
-//    WCHAR *progIdW = NULL;
-//    char *progIdA = NULL;
-//    
-//    extensionA = wchars_to_utf8_chars(strlwrW(extensionW));
-//    if (extensionA == NULL)
-//    {
-//        WINE_ERR("out of memory\n");
-//        goto end;
-//    }
-//    
-//    friendlyDocNameW = assoc_query(ASSOCSTR_FRIENDLYDOCNAME, extensionW, NULL);
-//    if (friendlyDocNameW)
-//    {
-//        friendlyDocNameA = wchars_to_utf8_chars(friendlyDocNameW);
-//        if (friendlyDocNameA == NULL)
-//        {
-//            WINE_ERR("out of memory\n");
-//            goto end;
-//        }
-//    }
-//    
-//    progIdW = reg_get_valW(HKEY_CLASSES_ROOT, extensionW, NULL);
-//    if (progIdW)
-//    {
-//        progIdA = wchars_to_utf8_chars(progIdW);
-//        if (progIdA == NULL)
-//        {
-//            WINE_ERR("out of memory\n");
-//            goto end;
-//        }
-//    }
-//    else
-//        goto end; /* no progID => not a file type association */
-//    
-//    commandW = assoc_query(ASSOCSTR_COMMAND, extensionW, openW);
-//    if (commandW)
-//    {
-//        commandA = wchars_to_utf8_chars(commandW);
-//        if (commandA == NULL)
-//        {
-//            WINE_ERR("out of memory\n");
-//            goto end;
-//        }
-//    } else
-//        goto end; /* no command => no application is associated */
-//    
-//    executableW = assoc_query(ASSOCSTR_EXECUTABLE, extensionW, openW);
-//    
-//    iconW = assoc_query(ASSOCSTR_DEFAULTICON, extensionW, NULL);
-//    if (iconW)
-//    {
-//        int index = 0;
-//        char *iconPath;
-//        WCHAR *comma = strrchrW(iconW, ',');
-//        if (comma)
-//        {
-//            *comma = 0;
-//            index = atoiW(comma + 1);
-//        }
-//        iconPath = heap_printf("%s%s", progIdA, extensionA);
-//        extract_icon(iconW, index, iconPath, filetypes_dir, FALSE);
-//        HeapFree(GetProcessHeap(), 0, iconPath);
-//    }
-//    
-//    friendlyAppNameW = assoc_query(ASSOCSTR_FRIENDLYAPPNAME, extensionW, openW);
-//    if (friendlyAppNameW)
-//    {
-//        friendlyAppNameA = wchars_to_utf8_chars(friendlyAppNameW);
-//        if (friendlyAppNameA == NULL)
-//        {
-//            WINE_ERR("out of memory\n");
-//            goto end;
-//        }
-//    }
-//    else
-//    {
-//        friendlyAppNameA = heap_printf("A Wine application");
-//        if (friendlyAppNameA == NULL)
-//        {
-//            WINE_ERR("out of memory\n");
-//            goto end;
-//        }
-//    }
-//    
-//    if (has_association_changed(extensionW, progIdW, friendlyAppNameA))
-//    {
-//        char *desktopPath = heap_printf("%s/%s.%s.plist", filetypes_dir, progIdA, &extensionA[1]);
-//        if (desktopPath)
-//        {
-//            if (write_association_entry(desktopPath, extensionA, friendlyAppNameA, progIdA, commandA))
-//            {
-//                hasChanged = TRUE;
-//                update_association(extensionW, progIdW, friendlyAppNameA, desktopPath);
-//            }
-//            HeapFree(GetProcessHeap(), 0, desktopPath);
-//        }
-//    }
-//    
-//end:
-//    HeapFree(GetProcessHeap(), 0, extensionA);
-//    HeapFree(GetProcessHeap(), 0, commandW);
-//    HeapFree(GetProcessHeap(), 0, executableW);
-//    HeapFree(GetProcessHeap(), 0, friendlyDocNameW);
-//    HeapFree(GetProcessHeap(), 0, friendlyDocNameA);
-//    HeapFree(GetProcessHeap(), 0, iconW);
-//    HeapFree(GetProcessHeap(), 0, iconA);
-//    HeapFree(GetProcessHeap(), 0, contentTypeW);
-//    HeapFree(GetProcessHeap(), 0, friendlyAppNameW);
-//    HeapFree(GetProcessHeap(), 0, friendlyAppNameA);
-//    HeapFree(GetProcessHeap(), 0, progIdW);
-//    HeapFree(GetProcessHeap(), 0, progIdA);
-//}
-
 static void write_association_file(struct wine_rb_entry *rb_entry, void *context) {
     static const WCHAR openW[] = {'o','p','e','n',0};
     struct progid_ext_list_entry *entry = WINE_RB_ENTRY_VALUE(rb_entry, struct progid_ext_list_entry, entry);
     
-    struct extension_list *ext;
-    LIST_FOR_EACH_ENTRY(ext, entry->ext_list, struct extension_list, entry) {
-        char *extensionA;
-        WCHAR *extensionW;
-        WCHAR *commandW = NULL;
-        char *commandA = NULL;
-        WCHAR *executableW = NULL;
-        WCHAR *friendlyDocNameW = NULL;
-        char *friendlyDocNameA = NULL;
-        WCHAR *iconW = NULL;
-        char *iconA = NULL;
-        WCHAR *contentTypeW = NULL;
-        WCHAR *friendlyAppNameW = NULL;
-        char *friendlyAppNameA = NULL;
-        WCHAR *progIdW = NULL;
-        char *progIdA = NULL;
-        
-        extensionA = ext->extension;
-        extensionW = utf8_chars_to_wchars(extensionA);
-        if (extensionW == NULL) {
+    WCHAR *commandW = NULL;
+    char *commandA = NULL;
+    WCHAR *executableW = NULL;
+    WCHAR *friendlyDocNameW = NULL;
+    char *friendlyDocNameA = NULL;
+    WCHAR *iconW = NULL;
+    char *iconA = NULL;
+    WCHAR *contentTypeW = NULL;
+    WCHAR *friendlyAppNameW = NULL;
+    char *friendlyAppNameA = NULL;
+    WCHAR *progIdW = NULL;
+    char *progIdA = NULL;
+            
+    progIdA = entry->progid;
+    progIdW = utf8_chars_to_wchars(progIdA);
+    if (progIdW == NULL) {
+        WINE_ERR("out of memory\n");
+        goto end;
+    }
+    
+    friendlyDocNameW = assoc_query(ASSOCSTR_FRIENDLYDOCNAME, progIdW, NULL);
+    if (friendlyDocNameW)
+    {
+        friendlyDocNameA = wchars_to_utf8_chars(friendlyDocNameW);
+        if (friendlyDocNameA == NULL)
+        {
             WINE_ERR("out of memory\n");
             goto end;
         }
-        WINE_ERR("using code to do extension %s", extensionA);
-        
-        friendlyDocNameW = assoc_query(ASSOCSTR_FRIENDLYDOCNAME, extensionW, NULL);
-        if (friendlyDocNameW)
-        {
-            friendlyDocNameA = wchars_to_utf8_chars(friendlyDocNameW);
-            if (friendlyDocNameA == NULL)
-            {
-                WINE_ERR("out of memory\n");
-                goto end;
-            }
-        }
-        
-        progIdW = reg_get_valW(HKEY_CLASSES_ROOT, extensionW, NULL);
-        if (progIdW)
-        {
-            progIdA = wchars_to_utf8_chars(progIdW);
-            if (progIdA == NULL)
-            {
-                WINE_ERR("out of memory\n");
-                goto end;
-            }
-        }
-        else
-            goto end; /* no progID => not a file type association */
-        
-        commandW = assoc_query(ASSOCSTR_COMMAND, extensionW, openW);
-        if (commandW)
-        {
-            commandA = wchars_to_utf8_chars(commandW);
-            if (commandA == NULL)
-            {
-                WINE_ERR("out of memory\n");
-                goto end;
-            }
-        } else
-            goto end; /* no command => no application is associated */
-        
-        executableW = assoc_query(ASSOCSTR_EXECUTABLE, extensionW, openW);
-        
-        iconW = assoc_query(ASSOCSTR_DEFAULTICON, extensionW, NULL);
-        if (iconW)
-        {
-            int index = 0;
-            char *iconPath;
-            WCHAR *comma = strrchrW(iconW, ',');
-            if (comma)
-            {
-                *comma = 0;
-                index = atoiW(comma + 1);
-            }
-            iconPath = heap_printf("%s%s", progIdA, extensionA);
-            extract_icon(iconW, index, iconPath, filetypes_dir, FALSE);
-            HeapFree(GetProcessHeap(), 0, iconPath);
-        }
-        
-        friendlyAppNameW = assoc_query(ASSOCSTR_FRIENDLYAPPNAME, extensionW, openW);
-        if (friendlyAppNameW)
-        {
-            friendlyAppNameA = wchars_to_utf8_chars(friendlyAppNameW);
-            if (friendlyAppNameA == NULL)
-            {
-                WINE_ERR("out of memory\n");
-                goto end;
-            }
-        }
-        else
-        {
-            friendlyAppNameA = heap_printf("A Wine application");
-            if (friendlyAppNameA == NULL)
-            {
-                WINE_ERR("out of memory\n");
-                goto end;
-            }
-        }
-        
-        if (has_association_changed(extensionW, progIdW, friendlyAppNameA))
-        {
-            char *desktopPath = heap_printf("%s/%s.%s.plist", filetypes_dir, progIdA, &extensionA[1]);
-            if (desktopPath)
-            {
-                if (write_association_entry(desktopPath, extensionA, friendlyAppNameA, progIdA, commandA))
-                {
-                    update_association(extensionW, progIdW, friendlyAppNameA, desktopPath);
-                }
-                HeapFree(GetProcessHeap(), 0, desktopPath);
-            }
-        }
-        
-    end:
-        HeapFree(GetProcessHeap(), 0, extensionA);
-        HeapFree(GetProcessHeap(), 0, commandW);
-        HeapFree(GetProcessHeap(), 0, executableW);
-        HeapFree(GetProcessHeap(), 0, friendlyDocNameW);
-        HeapFree(GetProcessHeap(), 0, friendlyDocNameA);
-        HeapFree(GetProcessHeap(), 0, iconW);
-        HeapFree(GetProcessHeap(), 0, iconA);
-        HeapFree(GetProcessHeap(), 0, contentTypeW);
-        HeapFree(GetProcessHeap(), 0, friendlyAppNameW);
-        HeapFree(GetProcessHeap(), 0, friendlyAppNameA);
-        HeapFree(GetProcessHeap(), 0, progIdW);
-        HeapFree(GetProcessHeap(), 0, progIdA);
     }
+
+    
+    commandW = assoc_query(ASSOCSTR_COMMAND, progIdW, openW);
+    if (commandW)
+    {
+        commandA = wchars_to_utf8_chars(commandW);
+        if (commandA == NULL)
+        {
+            WINE_ERR("out of memory\n");
+            goto end;
+        }
+    } else
+        goto end; /* no command => no application is associated */
+    
+    executableW = assoc_query(ASSOCSTR_EXECUTABLE, progIdW, openW);
+    
+    iconW = assoc_query(ASSOCSTR_DEFAULTICON, progIdW, NULL);
+    if (iconW)
+    {
+        WINE_ERR("icon for %s: %s", progIdA, wine_dbgstr_w(iconW));
+        int index = 0;
+        char *iconPath;
+        WCHAR *comma = strrchrW(iconW, ',');
+        if (comma)
+        {
+            *comma = 0;
+            index = atoiW(comma + 1);
+        }
+        iconPath = heap_printf("%s.file", progIdA);
+        extract_icon(iconW, index, iconPath, filetypes_dir, FALSE);
+        HeapFree(GetProcessHeap(), 0, iconPath);
+    }
+    
+    friendlyAppNameW = assoc_query(ASSOCSTR_FRIENDLYAPPNAME, progIdW, openW);
+    if (friendlyAppNameW)
+    {
+        friendlyAppNameA = wchars_to_utf8_chars(friendlyAppNameW);
+        if (friendlyAppNameA == NULL)
+        {
+            WINE_ERR("out of memory\n");
+            goto end;
+        }
+    }
+    else
+    {
+        friendlyAppNameA = heap_printf("A Wine application");
+        if (friendlyAppNameA == NULL)
+        {
+            WINE_ERR("out of memory\n");
+            goto end;
+        }
+    }
+    
+    if (has_association_changed(progIdW, friendlyAppNameA))
+    {
+        char *desktopPath = heap_printf("%s/%s.plist", filetypes_dir, progIdA);
+        if (desktopPath)
+        {
+            if (write_association_entry(desktopPath, entry->ext_list, friendlyAppNameA, friendlyDocNameA, progIdA, commandA))
+            {
+                update_association(progIdW, friendlyAppNameA, desktopPath);
+            }
+            HeapFree(GetProcessHeap(), 0, desktopPath);
+        }
+    }
+    
+end:
+    HeapFree(GetProcessHeap(), 0, commandW);
+    HeapFree(GetProcessHeap(), 0, executableW);
+    HeapFree(GetProcessHeap(), 0, friendlyDocNameW);
+    HeapFree(GetProcessHeap(), 0, friendlyDocNameA);
+    HeapFree(GetProcessHeap(), 0, iconW);
+    HeapFree(GetProcessHeap(), 0, iconA);
+    HeapFree(GetProcessHeap(), 0, contentTypeW);
+    HeapFree(GetProcessHeap(), 0, friendlyAppNameW);
+    HeapFree(GetProcessHeap(), 0, friendlyAppNameA);
+    HeapFree(GetProcessHeap(), 0, progIdW);
+    HeapFree(GetProcessHeap(), 0, progIdA);
 }
 
 static void build_progid_ext_map(struct wine_rb_tree *map) {
@@ -2168,7 +2019,6 @@ static void build_progid_ext_map(struct wine_rb_tree *map) {
             struct wine_rb_entry *rb_entry = wine_rb_get(map, progIdA);
             if (!rb_entry) {
                 // gotta make a new entry
-                WINE_ERR("no entry for progid %s, making a new one\n", progIdA);
                 entry = HeapAlloc(GetProcessHeap(), 0, sizeof(struct progid_ext_list_entry));
                 entry->progid = progIdA;
                 entry->ext_list = HeapAlloc(GetProcessHeap(), 0, sizeof(struct list));
@@ -2178,17 +2028,11 @@ static void build_progid_ext_map(struct wine_rb_tree *map) {
                 }
             } else {
                 entry = WINE_RB_ENTRY_VALUE(rb_entry, struct progid_ext_list_entry, entry);
-                WINE_ERR("found an entry for progid %s: %p{progid=%p, list=%p}\n", progIdA, rb_entry, entry->progid, entry->ext_list);
             }
             
             struct extension_list *new_ext = HeapAlloc(GetProcessHeap(), 0, sizeof(struct extension_list));
             new_ext->extension = extensionA;
             list_add_head(entry->ext_list, &new_ext->entry);
-            
-            struct extension_list *ext;
-            LIST_FOR_EACH_ENTRY(ext, entry->ext_list, struct extension_list, entry) {
-                WINE_ERR("ext in list: %s\n", ext->extension);
-            }
             
         end:
             HeapFree(GetProcessHeap(), 0, progIdW);
