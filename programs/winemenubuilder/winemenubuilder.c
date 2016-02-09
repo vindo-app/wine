@@ -1643,9 +1643,9 @@ static HKEY open_associations_reg_key(void)
     return NULL;
 }
 
-static BOOL has_association_changed(LPCWSTR progId,
-    LPCSTR appName)
+static BOOL has_association_changed(LPCWSTR progId, LPCSTR name, LPCSTR appName)
 {
+    static const WCHAR NameW[] = {'N','a','m','e',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
     HKEY assocKey;
     BOOL ret;
@@ -1653,12 +1653,16 @@ static BOOL has_association_changed(LPCWSTR progId,
     if ((assocKey = open_associations_reg_key()))
     {
         CHAR *valueA;
-        WCHAR *value;
 
         ret = FALSE;
 
         valueA = reg_get_val_utf8(assocKey, progId, AppNameW);
         if (!valueA || lstrcmpA(valueA, appName))
+            ret = TRUE;
+        HeapFree(GetProcessHeap(), 0, valueA);
+
+        valueA = reg_get_val_utf8(assocKey, progId, NameW);
+        if (!valueA || lstrcmpA(valueA, name))
             ret = TRUE;
         HeapFree(GetProcessHeap(), 0, valueA);
 
@@ -1672,12 +1676,14 @@ static BOOL has_association_changed(LPCWSTR progId,
     return ret;
 }
 
-static void update_association(LPCWSTR progId, LPCSTR appName, LPCSTR desktopFile)
+static void update_association(LPCWSTR progId, LPCSTR name, LPCSTR appName, LPCSTR desktopFile)
 {
+    static const WCHAR NameW[] = {'N','a','m','e',0};
     static const WCHAR AppNameW[] = {'A','p','p','N','a','m','e',0};
     static const WCHAR DesktopFileW[] = {'D','e','s','k','t','o','p','F','i','l','e',0};
     HKEY assocKey = NULL;
     HKEY subkey = NULL;
+    WCHAR *nameW = NULL;
     WCHAR *appNameW = NULL;
     WCHAR *desktopFileW = NULL;
 
@@ -1691,6 +1697,13 @@ static void update_association(LPCWSTR progId, LPCSTR appName, LPCSTR desktopFil
     if (RegCreateKeyW(assocKey, progId, &subkey) != ERROR_SUCCESS)
     {
         WINE_ERR("could not create extension subkey\n");
+        goto done;
+    }
+
+    nameW = utf8_chars_to_wchars(name);
+    if (nameW == NULL)
+    {
+        WINE_ERR("out of memory\n");
         goto done;
     }
 
@@ -1708,6 +1721,7 @@ static void update_association(LPCWSTR progId, LPCSTR appName, LPCSTR desktopFil
         goto done;
     }
 
+    RegSetValueExW(subkey, NameW, 0, REG_SZ, (const BYTE*) nameW, (lstrlenW(nameW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, AppNameW, 0, REG_SZ, (const BYTE*) appNameW, (lstrlenW(appNameW) + 1) * sizeof(WCHAR));
     RegSetValueExW(subkey, DesktopFileW, 0, REG_SZ, (const BYTE*) desktopFileW, (lstrlenW(desktopFileW) + 1) * sizeof(WCHAR));
 
@@ -1799,10 +1813,11 @@ static BOOL is_extension_blacklisted(LPCWSTR extension)
 
 static BOOL write_association_entry(const char *desktopPath, struct list *ext_list,
                                                 const char *friendlyAppName, const char *friendlyDocName,
-                                                const char *progId, const char *command)
+                                                const char *progId, const char *command, const char *executable)
 {
     BOOL ret = FALSE;
     FILE *desktop;
+    struct extension_list *ext;
 
     desktop = fopen(desktopPath, "w");
     if (desktop)
@@ -1812,6 +1827,13 @@ static BOOL write_association_entry(const char *desktopPath, struct list *ext_li
         fprintf(desktop, "<plist version=\"1.0\">\n");
         fprintf(desktop, "<dict>\n");
 
+        if (friendlyDocName) {
+            fprintf(desktop, "    <key>Name</key>\n");
+            fprintf(desktop, "    <string>");
+            write_xml_text(desktop, friendlyDocName);
+            fprintf(desktop, "</string>\n");
+        }
+
         if (friendlyAppName) {
             fprintf(desktop, "    <key>AppName</key>\n");
             fprintf(desktop, "    <string>");
@@ -1819,10 +1841,10 @@ static BOOL write_association_entry(const char *desktopPath, struct list *ext_li
             fprintf(desktop, "</string>\n");
         }
 
-        if (friendlyDocName) {
-            fprintf(desktop, "    <key>Name</key>\n");
+        if (executable) {
+            fprintf(desktop, "    <key>Executable</key>\n");
             fprintf(desktop, "    <string>");
-            write_xml_text(desktop, friendlyDocName);
+            write_xml_text(desktop, executable);
             fprintf(desktop, "</string>\n");
         }
 
@@ -1835,6 +1857,15 @@ static BOOL write_association_entry(const char *desktopPath, struct list *ext_li
         fprintf(desktop, "    <string>");
         write_xml_text(desktop, progId);
         fprintf(desktop, "</string>\n");
+
+        fprintf(desktop, "    <key>Extensions</key>\n");
+        fprintf(desktop, "    <array>\n");
+        LIST_FOR_EACH_ENTRY(ext, ext_list, struct extension_list, entry) {
+            fprintf(desktop, "        <string>");
+            write_xml_text(desktop, ext->extension);
+            fprintf(desktop, "</string>\n");
+        }
+        fprintf(desktop, "    </array>\n");
 
         fprintf(desktop, "</dict>\n");
         fprintf(desktop, "</plist>\n");
@@ -1853,6 +1884,8 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
     WCHAR *commandW = NULL;
     char *commandA = NULL;
     WCHAR *executableW = NULL;
+    WCHAR *longExecutableW = NULL;
+    char *executableA = NULL;
     WCHAR *friendlyDocNameW = NULL;
     char *friendlyDocNameA = NULL;
     WCHAR *iconW = NULL;
@@ -1901,7 +1934,7 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
     iconW = assoc_query(ASSOCSTR_DEFAULTICON, progIdW, NULL);
     if (iconW)
     {
-        WINE_ERR("icon for %s: %s", progIdA, wine_dbgstr_w(iconW));
+        WINE_ERR("icon for %s: %s\n", progIdA, wine_dbgstr_w(iconW));
         int index = 0;
         char *iconPath;
         WCHAR *comma = strrchrW(iconW, ',');
@@ -1935,14 +1968,14 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
         }
     }
     
-    if (has_association_changed(progIdW, friendlyAppNameA))
+    if (has_association_changed(progIdW, friendlyDocNameA, friendlyAppNameA))
     {
         char *desktopPath = heap_printf("%s/%s.plist", filetypes_dir, progIdA);
         if (desktopPath)
         {
-            if (write_association_entry(desktopPath, entry->ext_list, friendlyAppNameA, friendlyDocNameA, progIdA, commandA))
+            if (write_association_entry(desktopPath, entry->ext_list, friendlyAppNameA, friendlyDocNameA, progIdA, commandA, executableA))
             {
-                update_association(progIdW, friendlyAppNameA, desktopPath);
+                update_association(progIdW, friendlyDocNameA, friendlyAppNameA, desktopPath);
             }
             HeapFree(GetProcessHeap(), 0, desktopPath);
         }
@@ -1951,6 +1984,8 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
 end:
     HeapFree(GetProcessHeap(), 0, commandW);
     HeapFree(GetProcessHeap(), 0, executableW);
+    HeapFree(GetProcessHeap(), 0, longExecutableW);
+    HeapFree(GetProcessHeap(), 0, executableA);
     HeapFree(GetProcessHeap(), 0, friendlyDocNameW);
     HeapFree(GetProcessHeap(), 0, friendlyDocNameA);
     HeapFree(GetProcessHeap(), 0, iconW);
