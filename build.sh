@@ -4,8 +4,12 @@ prefix=/Applications/Vindo.app/Contents/Resources/usr
 export PATH="/usr/bin:/bin:$prefix/bin"
 export DYLD_FALLBACK_LIBRARY_PATH="$prefix/lib"
 export LD_LIBRARY_PATH="$prefix/lib"
-export CFLAGS="-m32"
-export CXXFLAGS="-m32"
+export LDFLAGS="-L$prefix/lib"
+export CFLAGS="-m32 -I$prefix/include"
+export JPEG_CFLAGS="-I$prefix/include"
+export TIFF_CFLAGS="-I$prefix/include"
+export JPEG_CFLAGS="-I$prefix/include"
+export CXXFLAGS="-m32 -I$prefix/include"
 
 function bold() {
 	tput smso
@@ -82,11 +86,6 @@ configure --without-x --disable-lzma --with-jpeg-include-dir=$prefix/include --w
 make_install
 run cd ..
 run rm -rf tiff*
-
-#Now is the right time to do this. I'm not telling you why.
-#actually, because all the things after this need it. except little cms. but it's fine.
-#maybe should have done this at the beginning?
-export CFLAGS="-m32 -L$prefix/lib -I$prefix/include"
 
 #libicns
 download https://downloads.sourceforge.net/project/icns/libicns-0.8.1.tar.gz
