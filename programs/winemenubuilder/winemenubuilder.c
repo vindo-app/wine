@@ -1889,7 +1889,6 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
     WCHAR *commandW = NULL;
     char *commandA = NULL;
     WCHAR *executableW = NULL;
-    WCHAR *longExecutableW = NULL;
     char *executableA = NULL;
     WCHAR *friendlyDocNameW = NULL;
     char *friendlyDocNameA = NULL;
@@ -1920,7 +1919,6 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
             goto end;
         }
     }
-
     
     commandW = assoc_query(ASSOCSTR_COMMAND, progIdW, openW);
     if (commandW)
@@ -1935,7 +1933,18 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
         goto end; /* no command => no application is associated */
     
     executableW = assoc_query(ASSOCSTR_EXECUTABLE, progIdW, openW);
-
+    if (executableW) {
+        char *iconPath;
+        executableA = wchars_to_utf8_chars(executableW);
+        if (executableA == NULL) {
+            WINE_ERR("out of memory\n");
+            goto end;
+        }
+        iconPath = heap_printf("%s.app", progIdA);
+        extract_icon(executableW, 0, iconPath, filetypes_dir, FALSE);
+        HeapFree(GetProcessHeap(), 0, iconPath);
+    }
+    
     iconW = assoc_query(ASSOCSTR_DEFAULTICON, progIdW, NULL);
     if (iconW)
     {
@@ -1989,7 +1998,6 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
 end:
     HeapFree(GetProcessHeap(), 0, commandW);
     HeapFree(GetProcessHeap(), 0, executableW);
-    HeapFree(GetProcessHeap(), 0, longExecutableW);
     HeapFree(GetProcessHeap(), 0, executableA);
     HeapFree(GetProcessHeap(), 0, friendlyDocNameW);
     HeapFree(GetProcessHeap(), 0, friendlyDocNameA);
