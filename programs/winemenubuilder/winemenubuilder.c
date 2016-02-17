@@ -859,14 +859,16 @@ static HRESULT open_module_icon(LPCWSTR szFileName, int nIndex, IStream **ppStre
         hResInfo=NULL;
         sEnumRes.pResInfo = &hResInfo;
         sEnumRes.nIndex = nIndex;
+        ERR("x\n");
         if (!EnumResourceNamesW(hModule, (LPCWSTR)RT_GROUP_ICON,
                                 EnumResNameProc, (LONG_PTR)&sEnumRes) &&
             sEnumRes.nIndex != -1)
         {
-            WINE_TRACE("EnumResourceNamesW failed, error %d\n", GetLastError());
+            WINE_WARN("EnumResourceNamesW failed, error %d\n", GetLastError());
         }
     }
 
+    ERR("hResInfo is 0x%x\n", hResInfo);
     if (hResInfo)
     {
         if ((hResData = LoadResource(hModule, hResInfo)))
@@ -1052,6 +1054,7 @@ static HRESULT open_icon(LPCWSTR filename, int index, BOOL bWait, IStream **ppSt
     hr = open_module_icon(filename, index, ppStream);
     if (FAILED(hr))
     {
+        ERR("open_module_icon(%s) returned 0x%x\n", wine_dbgstr_w(filename), hr);
         if(bWait && hr == HRESULT_FROM_WIN32(ERROR_MOD_NOT_FOUND))
         {
             WINE_WARN("Can't find file: %s, give a chance to parent process to create it\n",
@@ -1069,12 +1072,14 @@ static HRESULT open_icon(LPCWSTR filename, int index, BOOL bWait, IStream **ppSt
 
     if (FAILED(hr))
     {
+        ERR("validate_ico(%s) returned 0x%x\n", wine_dbgstr_w(filename), hr);
         hr = open_file_type_icon(filename, ppStream);
         if (SUCCEEDED(hr))
             hr = validate_ico(ppStream, ppIconDirEntries, numEntries);
     }
     if (FAILED(hr) && !bWait)
     {
+        ERR("validate_icon(%s) returned 0x%x\n", wine_dbgstr_w(filename), hr);
         hr = open_default_icon(ppStream);
         if (SUCCEEDED(hr))
             hr = validate_ico(ppStream, ppIconDirEntries, numEntries);
@@ -1869,6 +1874,8 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
         WINE_ERR("out of memory\n");
         goto end;
     }
+
+    ERR("write_association_file: %s\n", progIdA);
     
     friendlyDocNameW = assoc_query(ASSOCSTR_FRIENDLYDOCNAME, progIdW, NULL);
     if (friendlyDocNameW)
@@ -1895,7 +1902,7 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
         goto end; /* no command => no application is associated */
     
     executableW = assoc_query(ASSOCSTR_EXECUTABLE, progIdW, openW);
-    
+
     iconW = assoc_query(ASSOCSTR_DEFAULTICON, progIdW, NULL);
     if (iconW)
     {
