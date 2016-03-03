@@ -1947,6 +1947,13 @@ static void write_association_file(struct wine_rb_entry *rb_entry, void *context
             *comma = 0;
             index = atoiW(comma + 1);
         }
+        if (*iconW == '"') {
+            WCHAR *quote = strrchrW(iconW, '"');
+            if (quote) {
+                *quote = '\0';
+                iconW++;
+            }
+        }
         iconPath = heap_printf("%s.file", progIdA);
         extract_icon(iconW, index, iconPath, filetypes_dir, FALSE);
         HeapFree(GetProcessHeap(), 0, iconPath);
