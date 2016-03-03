@@ -1992,7 +1992,6 @@ end:
     HeapFree(GetProcessHeap(), 0, friendlyAppNameW);
     HeapFree(GetProcessHeap(), 0, friendlyAppNameA);
     HeapFree(GetProcessHeap(), 0, progIdW);
-    HeapFree(GetProcessHeap(), 0, progIdA);
 }
 
 static void build_progid_ext_map(struct wine_rb_tree *map) {
