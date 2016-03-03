@@ -63,7 +63,6 @@ typedef struct
   LONG ref;
   HKEY hkeySource;
   HKEY hkeyProgID;
-  LPWSTR pszAssocName;
 } IQueryAssociationsImpl;
 
 typedef struct
@@ -155,7 +154,6 @@ static ULONG WINAPI IQueryAssociations_fnRelease(IQueryAssociations *iface)
     TRACE("Destroying IQueryAssociations (%p)\n", This);
     RegCloseKey(This->hkeySource);
     RegCloseKey(This->hkeyProgID);
-    HeapFree(GetProcessHeap(), 0, (LPVOID)This->pszAssocName);
     SHFree(This);
   }
 
@@ -203,16 +201,12 @@ static HRESULT WINAPI IQueryAssociations_fnInit(
     if (This->hkeySource != This->hkeyProgID)
         RegCloseKey(This->hkeyProgID);
     This->hkeySource = This->hkeyProgID = NULL;
-    HeapFree(GetProcessHeap(), 0, (LPVOID)This->pszAssocName);
 
     /* If the process of initializing hkeyProgID fails, just return S_OK. That's what Windows does. */
     if (pszAssoc != NULL)
     {
         WCHAR *progId;
         HRESULT hr;
-
-        This->pszAssocName = HeapAlloc(GetProcessHeap(), 0, (strlenW(pszAssoc) + 1) * sizeof(WCHAR));
-        strcpyW(This->pszAssocName, pszAssoc);
 
         ret = RegOpenKeyExW(HKEY_CLASSES_ROOT,
                             pszAssoc,
@@ -554,21 +548,8 @@ static HRESULT WINAPI IQueryAssociations_fnGetString(
 
       hr = ASSOC_GetValue(This->hkeyProgID, NULL, (void**)&docName, NULL);
       if (FAILED(hr)) {
-          /* hKeyProgID is NULL or there is no default value, use the default */
-          if (This->hkeyProgID != NULL && This->pszAssocName && This->pszAssocName[0] == '.') {
-              /* It's a file extension, capitalize the file extension and add " file". */
-              static const WCHAR _fileW[] = {' ','f','i','l','e',0};
-              DWORD len;
-
-              len = strlenW(This->pszAssocName) - 1 + sizeof(_fileW)/sizeof(WCHAR);
-              docName = HeapAlloc(GetProcessHeap(), 0, len * sizeof(WCHAR));
-
-              strcpyW(docName, This->pszAssocName + 1);
-              struprW(docName);
-              strcatW(docName, _fileW);
-          } else {
-              return HRESULT_FROM_WIN32(ERROR_NO_ASSOCIATION);
-          }
+          /* hKeyProgID is NULL or there is no default value, so fail */
+          return HRESULT_FROM_WIN32(ERROR_NO_ASSOCIATION);
       }
       hr = ASSOC_ReturnString(flags, pszOut, pcchOut, docName, strlenW(docName) + 1);
       HeapFree(GetProcessHeap(), 0, docName);
