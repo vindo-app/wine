@@ -236,7 +236,8 @@ static NSString* WineLocalizedString(unsigned int stringID)
                 title = [NSString stringWithFormat:WineLocalizedString(STRING_MENU_ITEM_HIDE_APPNAME), bundleName];
             else
                 title = WineLocalizedString(STRING_MENU_ITEM_HIDE);
-            item = [submenu addItemWithTitle:title action:@selector(hide:) keyEquivalent:@""];
+            item = [submenu addItemWithTitle:title action:@selector(hide:) keyEquivalent:@"h"];
+            [item setKeyEquivalentModifierMask:NSCommandKeyMask];
 
             item = [submenu addItemWithTitle:WineLocalizedString(STRING_MENU_ITEM_HIDE_OTHERS)
                                       action:@selector(hideOtherApplications:)
@@ -254,7 +255,7 @@ static NSString* WineLocalizedString(unsigned int stringID)
             else
                 title = WineLocalizedString(STRING_MENU_ITEM_QUIT);
             item = [submenu addItemWithTitle:title action:@selector(terminate:) keyEquivalent:@"q"];
-            [item setKeyEquivalentModifierMask:NSCommandKeyMask | NSAlternateKeyMask];
+            [item setKeyEquivalentModifierMask:NSCommandKeyMask];
             item = [[[NSMenuItem alloc] init] autorelease];
             [item setTitle:WineLocalizedString(STRING_MENU_WINE)];
             [item setSubmenu:submenu];
