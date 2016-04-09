@@ -238,14 +238,14 @@ static const struct {
     { VK_BACK,                  0x0E,           TRUE },     /* kVK_Delete */
     { 0,                        0,              FALSE },    /* 0x34 unused */
     { VK_ESCAPE,                0x01,           TRUE },     /* kVK_Escape */
-    { VK_RMENU,                 0x38 | 0x100,   TRUE },     /* kVK_RightCommand */
-    { VK_LMENU,                 0x38,           TRUE },     /* kVK_Command */
+    { 0,                        0,              TRUE },     /* kVK_RightCommand */
+    { 0,                        0,              TRUE },     /* kVK_Command */
     { VK_LSHIFT,                0x2A,           TRUE },     /* kVK_Shift */
     { VK_CAPITAL,               0x3A,           TRUE },     /* kVK_CapsLock */
-    { 0,                        0,              FALSE },    /* kVK_Option */
+    { VK_LMENU,                 0x38,           TRUE },     /* kVK_Option */
     { VK_LCONTROL,              0x1D,           TRUE },     /* kVK_Control */
     { VK_RSHIFT,                0x36,           TRUE },     /* kVK_RightShift */
-    { 0,                        0,              FALSE },    /* kVK_RightOption */
+    { VK_RMENU,                 0x38 | 0x100,   TRUE },     /* kVK_RightOption */
     { VK_RCONTROL,              0x1D | 0x100,   TRUE },     /* kVK_RightControl */
     { 0,                        0,              FALSE },    /* kVK_Function */
     { VK_F17,                   0x68,           TRUE },     /* kVK_F17 */
@@ -1139,9 +1139,9 @@ void macdrv_process_text_input(UINT vkey, UINT scan, UINT repeat, const BYTE *ke
     else
         flags &= ~(NX_CONTROLMASK | NX_DEVICELCTLKEYMASK | NX_DEVICERCTLKEYMASK);
     if (key_state[VK_MENU] & 0x80)
-        flags |= NX_COMMANDMASK;
+        flags |= NX_ALTERNATEMASK;
     else
-        flags &= ~(NX_COMMANDMASK | NX_DEVICELCMDKEYMASK | NX_DEVICERCMDKEYMASK);
+        flags &= ~(NX_ALTERNATEMASK | NX_DEVICELCMDKEYMASK | NX_DEVICERCMDKEYMASK);
 
     /* Find the Mac keycode corresponding to the scan code */
     for (keyc = 0; keyc < sizeof(thread_data->keyc2vkey)/sizeof(thread_data->keyc2vkey[0]); keyc++)
@@ -1627,10 +1627,6 @@ INT CDECL macdrv_ToUnicodeEx(UINT virtKey, UINT scanCode, const BYTE *lpKeyState
         modifierKeyState |= (alphaLock >> 8);
     if (lpKeyState[VK_CONTROL] & 0x80)
         modifierKeyState |= (controlKey >> 8);
-    if (lpKeyState[VK_MENU] & 0x80)
-        modifierKeyState |= (cmdKey >> 8);
-    if (thread_data->last_modifiers & (NX_ALTERNATEMASK | NX_DEVICELALTKEYMASK | NX_DEVICERALTKEYMASK))
-        modifierKeyState |= (optionKey >> 8);
 
     /* Find the Mac keycode corresponding to the vkey */
     for (keyc = 0; keyc < sizeof(thread_data->keyc2vkey)/sizeof(thread_data->keyc2vkey[0]); keyc++)
