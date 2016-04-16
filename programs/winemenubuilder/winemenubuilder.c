@@ -1036,13 +1036,6 @@ end:
     return hr;
 }
 
-static HRESULT open_default_icon(IStream **ppStream)
-{
-    static const WCHAR user32W[] = {'u','s','e','r','3','2',0};
-
-    return open_module_icon(user32W, -(INT_PTR)IDI_WINLOGO, ppStream);
-}
-
 static HRESULT open_icon(LPCWSTR filename, int index, BOOL bWait, IStream **ppStream, ICONDIRENTRY **ppIconDirEntries, int *numEntries)
 {
     HRESULT hr;
@@ -1068,12 +1061,6 @@ static HRESULT open_icon(LPCWSTR filename, int index, BOOL bWait, IStream **ppSt
     if (FAILED(hr))
     {
         hr = open_file_type_icon(filename, ppStream);
-        if (SUCCEEDED(hr))
-            hr = validate_ico(ppStream, ppIconDirEntries, numEntries);
-    }
-    if (FAILED(hr) && !bWait)
-    {
-        hr = open_default_icon(ppStream);
         if (SUCCEEDED(hr))
             hr = validate_ico(ppStream, ppIconDirEntries, numEntries);
     }
