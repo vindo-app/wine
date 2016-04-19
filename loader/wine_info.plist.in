@@ -9,11 +9,11 @@
     <key>CFBundleExecutable</key>
     <string>wine</string>
     <key>CFBundleIdentifier</key>
-    <string>org.winehq.wine</string>
+    <string>co.vindo.wine</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>
-    <string>Wine</string>
+    <string>Windows Program<!-- nobody is supposed to know about this padding so it's a comment and it's very very long even though there will never be a program name this long but it's best to be safe rather than sorry ok this is probably long enough --></string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
