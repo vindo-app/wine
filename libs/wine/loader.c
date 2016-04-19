@@ -17,7 +17,7 @@
  * License along with this library; if not, write to the Free Software
  * Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA 02110-1301, USA
  */
-
+// This file has been patched up with CrossOver Hack 13438. This is legal, because Wine is LGPL.
 #include "config.h"
 #include "wine/port.h"
 
@@ -49,6 +49,24 @@
 #undef LoadResource
 #undef GetCurrentThread
 #include <pthread.h>
+#include <mach-o/getsect.h> /* CrossOver Hack 13438 */
+#include <mach-o/dyld.h>
+
+/* CrossOver Hack 13438 */
+#define MAKEFUNC(f) static typeof(f) *p##f
+MAKEFUNC(CFNotificationCenterGetDistributedCenter);
+MAKEFUNC(CFRelease);
+MAKEFUNC(CFRunLoopAddSource);
+MAKEFUNC(CFRunLoopGetCurrent);
+MAKEFUNC(CFRunLoopRun);
+MAKEFUNC(CFRunLoopSourceCreate);
+MAKEFUNC(CFRunLoopSourceSignal);
+MAKEFUNC(CFRunLoopStop);
+MAKEFUNC(kCFRunLoopCommonModes);
+MAKEFUNC(MPCurrentTaskID);
+MAKEFUNC(MPTaskIsPreemptive);
+#undef MAKEFUNC
+
 #else
 extern char **environ;
 #endif
@@ -686,6 +704,87 @@ struct apple_stack_info
 };
 
 /***********************************************************************
+ *           apple_override_bundle_name
+ *
+ * Rewrite the bundle name in the Info.plist embedded in the loader.
+ * This is the only way to control the title of the application menu
+ * when using the Mac driver.  The GUI frameworks call down into Core
+ * Foundation to get the bundle name for that.
+ *
+ * CrossOver Hack 13438
+ */
+static void apple_override_bundle_name( int argc, char *argv[] )
+{
+    char* info_plist;
+    unsigned long remaining;
+    static const char prefix[] = "<key>CFBundleName</key>\n    <string>";
+    const size_t prefix_len = strlen(prefix);
+    static const char suffix[] = "</string>";
+    const size_t suffix_len = strlen(suffix);
+    static const char padding[] = "<!-- bundle name padding -->";
+    const size_t padding_len = strlen(padding);
+    char* bundle_name;
+    const char* p;
+    int bundle_name_len, max_bundle_name_len;
+    uintptr_t start, end;
+    const char* new_bundle_name;
+    int new_bundle_name_len;
+
+    if (argc < 2)
+        return;
+
+    info_plist = getsectdata("__TEXT", "__info_plist", &remaining);
+    if (!info_plist || !remaining)
+        return;
+    info_plist += _dyld_get_image_vmaddr_slide(0);
+
+    bundle_name = strnstr(info_plist, prefix, remaining);
+    if (!bundle_name)
+        return;
+
+    bundle_name += prefix_len;
+    remaining -= bundle_name - info_plist;
+    p = strnstr(bundle_name, suffix, remaining);
+    if (!p)
+        return;
+
+    bundle_name_len = p - bundle_name;
+    remaining -= bundle_name_len + suffix_len;
+
+    max_bundle_name_len = bundle_name_len;
+    if (padding_len <= remaining &&
+        !memcmp(bundle_name + bundle_name_len + suffix_len, padding, padding_len))
+        max_bundle_name_len += padding_len;
+
+    new_bundle_name = argv[1];
+    if ((p = strrchr(new_bundle_name, '\\'))) new_bundle_name = p + 1;
+    if ((p = strrchr(new_bundle_name, '/'))) new_bundle_name = p + 1;
+    if (strspn(new_bundle_name, "0123456789abcdefABCDEF") == 32 &&
+        new_bundle_name[32] == '.')
+        new_bundle_name += 33;
+    if ((p = strrchr(new_bundle_name, '.')) && p != new_bundle_name)
+        new_bundle_name_len = p - new_bundle_name;
+    else
+        new_bundle_name_len = strlen(new_bundle_name);
+    if (!new_bundle_name_len)
+        return;
+
+    start = (uintptr_t)bundle_name;
+    end = (uintptr_t)(bundle_name + max_bundle_name_len + suffix_len);
+    start &= ~(getpagesize() - 1);
+    end = (end + getpagesize() - 1) & ~(getpagesize() - 1);
+    if (mprotect((void*)start, end - start, PROT_READ|PROT_WRITE|PROT_EXEC) == 0)
+    {
+        int copy_len = min(new_bundle_name_len, max_bundle_name_len);
+        memcpy(bundle_name, new_bundle_name, copy_len);
+        memcpy(bundle_name + copy_len, suffix, suffix_len);
+        if (copy_len < max_bundle_name_len)
+            memset(bundle_name + copy_len + suffix_len, ' ', max_bundle_name_len - copy_len);
+        mprotect((void*)start, end - start, PROT_READ|PROT_EXEC);
+    }
+}
+
+/***********************************************************************
  *           apple_alloc_thread_stack
  *
  * Callback for wine_mmap_enum_reserved_areas to allocate space for
@@ -747,7 +846,7 @@ static void apple_create_wine_thread( void *init_func )
      * the run loop allows apple_main_thread() and thus wine_init() to
      * return. */
     if (!success)
-        CFRunLoopStop( CFRunLoopGetCurrent() );
+        pCFRunLoopStop( pCFRunLoopGetCurrent() );
 }
 
 
@@ -761,8 +860,52 @@ static void apple_create_wine_thread( void *init_func )
  */
 static void apple_main_thread( void (*init_func)(void) )
 {
+    void *corefoundation_handle, *coreservices_handle;
+    char error[1024];
     CFRunLoopSourceContext source_context = { 0 };
     CFRunLoopSourceRef source;
+
+    /* CrossOver Hack 13438: dynamically load CoreFoundation and CoreServices */
+    corefoundation_handle = wine_dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",
+                                        RTLD_LAZY, error, sizeof(error));
+    if (!corefoundation_handle)
+    {
+        fprintf(stderr, "wine: failed to load CoreFoundation; %s\n", error);
+        return;
+    }
+
+#define LOADFUNC(f) if (!(p##f = wine_dlsym(corefoundation_handle, #f, error, sizeof(error)))) \
+                    { \
+                        fprintf(stderr, "wine: failed to load symbol %s; %s\n", #f, error); \
+                        return; \
+                    }
+    LOADFUNC(CFNotificationCenterGetDistributedCenter);
+    LOADFUNC(CFRelease);
+    LOADFUNC(CFRunLoopAddSource);
+    LOADFUNC(CFRunLoopGetCurrent);
+    LOADFUNC(CFRunLoopRun);
+    LOADFUNC(CFRunLoopSourceCreate);
+    LOADFUNC(CFRunLoopSourceSignal);
+    LOADFUNC(CFRunLoopStop);
+    LOADFUNC(kCFRunLoopCommonModes);
+#undef LOADFUNC
+
+    coreservices_handle = wine_dlopen("/System/Library/Frameworks/CoreServices.framework/CoreServices",
+                                        RTLD_LAZY, error, sizeof(error));
+    if (!coreservices_handle)
+    {
+        fprintf(stderr, "wine: failed to load CoreServices; %s\n", error);
+        return;
+    }
+
+#define LOADFUNC(f) if (!(p##f = wine_dlsym(coreservices_handle, #f, error, sizeof(error)))) \
+                    { \
+                        fprintf(stderr, "wine: failed to load symbol %s; %s\n", #f, error); \
+                        return; \
+                    }
+    LOADFUNC(MPCurrentTaskID);
+    LOADFUNC(MPTaskIsPreemptive);
+#undef LOADFUNC
 
     if (!pthread_main_np())
     {
@@ -773,12 +916,12 @@ static void apple_main_thread( void (*init_func)(void) )
     /* Multi-processing Services can get confused about the main thread if the
      * first time it's used is on a secondary thread.  Use it here to make sure
      * that doesn't happen. */
-    MPTaskIsPreemptive(MPCurrentTaskID());
+    pMPTaskIsPreemptive(pMPCurrentTaskID());
 
     /* Give ourselves the best chance of having the distributed notification
      * center scheduled on this thread's run loop.  In theory, it's scheduled
      * in the first thread to ask for it. */
-    CFNotificationCenterGetDistributedCenter();
+    pCFNotificationCenterGetDistributedCenter();
 
     /* We use this run loop source for two purposes.  First, a run loop exits
      * if it has no more sources scheduled.  So, we need at least one source
@@ -788,15 +931,15 @@ static void apple_main_thread( void (*init_func)(void) )
      * adding it and have its callback spin off the Wine thread. */
     source_context.info = init_func;
     source_context.perform = apple_create_wine_thread;
-    source = CFRunLoopSourceCreate( NULL, 0, &source_context );
+    source = pCFRunLoopSourceCreate( NULL, 0, &source_context );
 
     if (source)
     {
-        CFRunLoopAddSource( CFRunLoopGetCurrent(), source, kCFRunLoopCommonModes );
-        CFRunLoopSourceSignal( source );
-        CFRelease( source );
+        pCFRunLoopAddSource( pCFRunLoopGetCurrent(), source, *pkCFRunLoopCommonModes );
+        pCFRunLoopSourceSignal( source );
+        pCFRelease( source );
 
-        CFRunLoopRun(); /* Should never return, except on error. */
+        pCFRunLoopRun(); /* Should never return, except on error. */
     }
 
     /* If we get here (i.e. return), that indicates failure to our caller. */
@@ -928,6 +1071,10 @@ void wine_init( int argc, char *argv[], char *error, int error_size )
 #endif
 #ifdef RLIMIT_AS
     set_max_limit( RLIMIT_AS );
+#endif
+
+#ifdef __APPLE__ /* CrossOver Hack 13438 */
+    apple_override_bundle_name(argc, argv);
 #endif
 
     wine_init_argv0_path( argv[0] );
