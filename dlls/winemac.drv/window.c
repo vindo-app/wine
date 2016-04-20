@@ -944,8 +944,18 @@ static void set_app_icon(void)
     CFArrayRef images = create_app_icon_images();
     if (images)
     {
-        macdrv_set_application_icon(images);
+        macdrv_set_application_icon(images, NULL);
         CFRelease(images);
+    } else {
+        // Vindo hack: use the vindo exe icon by default
+        const char *iconPath = getenv("THIS_IS_WHERE_THE_EXE_ICON_IS"); // it's unique, if nothing else
+        if (iconPath && iconPath[0]) {
+            CFURLRef url = CFURLCreateFromFileSystemRepresentation(NULL, (UInt8 *)iconPath, strlen(iconPath), TRUE);
+            if (url) {
+                macdrv_set_application_icon(NULL, url);
+                CFRelease(url);
+            }
+        }
     }
 }
 
