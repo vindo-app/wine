@@ -9,6 +9,7 @@ export CFLAGS="-m32 -I$prefix/include"
 export JPEG_CFLAGS="-I$prefix/include"
 export TIFF_CFLAGS="-I$prefix/include"
 export JPEG_CFLAGS="-I$prefix/include"
+export XML2_CFLAGS="-I$prefix/include/libxml2"
 export CXXFLAGS="-m32 -I$prefix/include"
 
 function bold() {
@@ -94,6 +95,14 @@ configure --disable-debug
 make_install
 run cd ..
 run rm -rf libicns*
+
+#libxml2
+download http://xmlsoft.org/sources/libxml2-2.9.3.tar.gz
+run cd libxml2*
+configure --without-python --without-lzma
+make_install
+run cd ..
+run rm -rf libxml2*
 
 #little-cms2
 download https://downloads.sourceforge.net/project/lcms/lcms/1.19/lcms-1.19.tar.gz
