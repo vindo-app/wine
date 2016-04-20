@@ -2713,12 +2713,21 @@ int macdrv_clip_cursor(CGRect r)
  * color depths from the icon resource.  If images is NULL or empty,
  * restores the default application image.
  */
-void macdrv_set_application_icon(CFArrayRef images)
+void macdrv_set_application_icon(CFArrayRef images, CFURLRef urlRef)
 {
     NSArray* imageArray = (NSArray*)images;
+    NSURL* url = (NSURL*)urlRef;
 
     OnMainThreadAsync(^{
-        [[WineApplicationController sharedController] setApplicationIconFromCGImageArray:imageArray];
+        // CrossOver^H^H^H^H^H^H^H^H^HVindo Hack 13440: Get the icon from the passed-in URL if no images
+        WineApplicationController* controller = [WineApplicationController sharedController];
+        NSImage* image = nil;
+        if (!imageArray && url)
+            image = [[[NSImage alloc] initWithContentsOfURL:url] autorelease];
+        if (imageArray || ![image isValid])
+            [controller setApplicationIconFromCGImageArray:imageArray];
+        else
+            controller.applicationIcon = image;
     });
 }
 
