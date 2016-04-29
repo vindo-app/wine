@@ -1121,20 +1121,9 @@ static void set_process_name( int argc, char *argv[] )
 {
 #ifdef HAVE_SETPROCTITLE
     setproctitle("-%s", argv[1]);
-    /* remove argv[0] */
-    memmove( argv, argv + 1, argc * sizeof(argv[0]) );
-#elif defined(HAVE_SETPROGNAME)
-    int i, offset;
-    char *end = argv[argc-1] + strlen(argv[argc-1]) + 1;
+#endif
 
-    offset = argv[1] - argv[0];
-    memmove( argv[1] - offset, argv[1], end - argv[1] );
-    memset( end - offset, 0, offset );
-    for (i = 1; i < argc; i++) argv[i-1] = argv[i] - offset;
-    argv[i-1] = NULL;
-
-    setprogname( argv[0] );
-#elif defined(HAVE_PRCTL)
+#ifdef HAVE_PRCTL
     int i, offset;
     char *p, *prctl_name = argv[1];
     char *end = argv[argc-1] + strlen(argv[argc-1]) + 1;
@@ -1155,11 +1144,11 @@ static void set_process_name( int argc, char *argv[] )
         argv[i-1] = NULL;
     }
     else
+#endif  /* HAVE_PRCTL */
     {
         /* remove argv[0] */
         memmove( argv, argv + 1, argc * sizeof(argv[0]) );
     }
-#endif  /* HAVE_PRCTL */
 }
 
 
