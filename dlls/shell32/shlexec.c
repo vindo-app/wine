@@ -1804,31 +1804,25 @@ static BOOL SHELL_execute( LPSHELLEXECUTEINFOW sei, SHELL_ExecuteW32 execfunc )
     }
     else if (PathIsDirectoryW(lpFile))
     {
-        static const WCHAR wExplorer[] = {'e','x','p','l','o','r','e','r',0};
-        static const WCHAR wQuote[] = {'"',0};
-        WCHAR wExec[MAX_PATH];
-        WCHAR * lpQuotedFile = HeapAlloc( GetProcessHeap(), 0, sizeof(WCHAR) * (strlenW(lpFile) + 3) );
-
-        if (lpQuotedFile)
-        {
-            retval = SHELL_FindExecutable( sei_tmp.lpDirectory, wExplorer,
-                                           wszOpen, wExec, MAX_PATH,
-                                           NULL, &env, NULL, NULL );
-            if (retval > 32)
-            {
-                strcpyW(lpQuotedFile, wQuote);
-                strcatW(lpQuotedFile, lpFile);
-                strcatW(lpQuotedFile, wQuote);
-                retval = SHELL_quote_and_execute( wExec, lpQuotedFile,
-                                                  wszKeyname,
-                                                  wszApplicationName, env,
-                                                  &sei_tmp, sei, execfunc );
-                HeapFree( GetProcessHeap(), 0, env );
+#ifdef __APPLE__
+        static const char *revealProgram = "/usr/bin/open";
+#else
+        static const char *revealProgram = "xdg-open";
+#endif
+        const char *unix_path = wine_get_unix_file_name(lpFile);
+        if (unix_path) {
+            const char *argv[3];
+            argv[0] = revealProgram;
+            argv[1] = unix_path;
+            argv[2] = NULL;
+            if (_spawnvp(_P_DETACH, revealProgram, argv) < 0) {
+                retval = ERROR_PATH_NOT_FOUND; /* just guessing */
+            } else {
+                retval = 33;
             }
-            HeapFree( GetProcessHeap(), 0, lpQuotedFile );
+        } else {
+            retval = 0;
         }
-        else
-            retval = 0; /* Out of memory */
     }
     else if (PathIsURLW(lpFile))    /* File not found, check for URL */
     {
