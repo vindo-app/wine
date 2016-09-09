@@ -239,21 +239,6 @@ static void winemenubuilder_rb_destroy(struct wine_rb_entry *entry, void *contex
     HeapFree(GetProcessHeap(), 0, t->ext_list);
 }
 
-static void *rb_alloc(size_t size) {
-    return HeapAlloc(GetProcessHeap(), 0, size);
-}
-static void *rb_realloc(void *ptr, size_t size) {
-    return HeapReAlloc(GetProcessHeap(), 0, ptr, size);
-}
-static void rb_free(void *ptr) {
-    HeapFree(GetProcessHeap(), 0, ptr);
-}
-
-static const struct wine_rb_functions winemenubuilder_rb_functions = {
-    rb_alloc, rb_realloc, rb_free,
-    winemenubuilder_rb_string_compare,
-};
-
 static void write_xml_text(FILE *file, const char *text)
 {
     int i;
@@ -1992,10 +1977,7 @@ static void build_progid_ext_map(struct wine_rb_tree *map) {
     LSTATUS ret = 0;
     int i;
     
-    if (wine_rb_init(map, &winemenubuilder_rb_functions)) {
-        WINE_ERR("wine_rb_init failed\n");
-        return;
-    }
+    wine_rb_init(map, &winemenubuilder_rb_string_compare);
     
     for (i = 0; ; i++)
     {
