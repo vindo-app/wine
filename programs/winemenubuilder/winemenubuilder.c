@@ -2267,7 +2267,6 @@ cleanup:
     HeapFree( GetProcessHeap(), 0, args );
     HeapFree( GetProcessHeap(), 0, path );
     HeapFree( GetProcessHeap(), 0, description );
-    HeapFree( GetProcessHeap(), 0, wmclass );
     HeapFree( GetProcessHeap(), 0, unix_link );
     HeapFree( GetProcessHeap(), 0, start_path );
 
